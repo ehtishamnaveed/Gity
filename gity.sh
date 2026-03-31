@@ -582,46 +582,40 @@ show_dashboard() {
     done <<< "$all_repos"
     
     clear
-    local width=60
-    echo -e "${BLUE}╔$(box_draw $width '═')╗${NC}"
-    echo -e "${BLUE}║${NC}$(printf "%*s" $(((width + 30) / 2)) "")${BOLD}📊 REPOS NEEDING ATTENTION${NC}$(printf "%*s" $(((width - 30) / 2)) "")"
-    echo -e "${BLUE}╠$(box_draw $width '═')╣${NC}"
-    echo -e "${BLUE}║${NC}  Total: $count repos scanned"
-    echo -e "${BLUE}╠$(box_draw $width '═')╣${NC}"
+    echo ""
+    echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║${NC}        ${BOLD}📊 DASHBOARD${NC}                    ${BLUE}║${NC}"
+    echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "  Total repos scanned: $count"
+    echo ""
     
     if [ "$critical_count" -gt 0 ]; then
-        echo -e "${BLUE}║${NC}  ${RED}🔴 CRITICAL ($critical_count repos)${NC}$(printf "%*s" $((width - 30)) "")"
-        echo -e "${BLUE}║${NC}$(box_draw $width ' ')"
+        echo -e "  ${RED}🔴 NEED ATTENTION ($critical_count repos)${NC}"
         while IFS= read -r line; do
-            echo -e "${BLUE}║${NC}  $line$(printf "%*s" $((width - ${#line} - 2)) "")"
+            echo -e "    $line"
         done < "$critical_file"
-        echo -e "${BLUE}╠$(box_draw $width '═')╣${NC}"
+        echo ""
     fi
     
     if [ "$warning_count" -gt 0 ]; then
-        echo -e "${BLUE}║${NC}  ${YELLOW}🟡 WARNINGS ($warning_count repos)${NC}$(printf "%*s" $((width - 30)) "")"
-        echo -e "${BLUE}║${NC}$(box_draw $width ' ')"
+        echo -e "  ${YELLOW}🟡 NEED SYNC ($warning_count repos)${NC}"
         while IFS= read -r line; do
-            echo -e "${BLUE}║${NC}  $line$(printf "%*s" $((width - ${#line} - 2)) "")"
+            echo -e "    $line"
         done < "$warning_file"
-        echo -e "${BLUE}╠$(box_draw $width '═')╣${NC}"
+        echo ""
     fi
     
     if [ "$healthy_count" -gt 0 ]; then
-        echo -e "${BLUE}║${NC}  ${GREEN}🟢 HEALTHY ($healthy_count repos)${NC}$(printf "%*s" $((width - 28)) "")"
-        echo -e "${BLUE}║${NC}$(box_draw $width ' ')"
-        while IFS= read -r line; do
-            echo -e "${BLUE}║${NC}  $line$(printf "%*s" $((width - ${#line} - 2)) "")"
-        done < "$healthy_file"
+        echo -e "  ${GREEN}🟢 ALL SYNCED ($healthy_count repos)${NC}"
     fi
     
-    echo -e "${BLUE}╚$(box_draw $width '═')╝${NC}"
     echo ""
     echo -e "${DIM}  Legend: ${GREEN}●${NC} Clean  ${YELLOW}✎${NC} Changes  ${CYAN}↑${NC} Ahead  ${RED}↓${NC} Behind  ${MAGENTA}↕${NC} Diverged${NC}"
+    echo ""
     
     rm -f "$critical_file" "$warning_file" "$healthy_file"
     
-    echo ""
     echo -e "${DIM}  Press ${BOLD}[Enter]${NC}${DIM} to return to menu...${NC}"
     read -n 1 -s
 }
