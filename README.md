@@ -100,6 +100,7 @@ After selecting a repo, you can:
 | Action | Description |
 |---|---|
 | **Open in Lazygit (TUI)** | Launch lazygit in that repository |
+| **Browse Files (fzf)** | Browse all repo files with fuzzy search and preview |
 | **Open in Default Editor** | Open repo using your `$EDITOR`, or your system's default |
 | **Open in File Manager** | Open repo folder in your file browser |
 | **Copy Path to Clipboard** | Copy the repo path to your clipboard |

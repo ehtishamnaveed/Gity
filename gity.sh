@@ -154,6 +154,7 @@ repo_actions() {
     rm -f "$RECENT_FILE.tmp"
 
     local actions="🚀 Open in Lazygit (TUI)
+📁 Browse Files (fzf)
 📝 Open in Default Editor
 📂 Open in File Manager"
 
@@ -171,12 +172,17 @@ repo_actions() {
         echo "  PATH: $repo_path"
         echo "===================================================="
         echo ""
+        echo -e "${YELLOW}  Tip: Use 'Browse Files' to see all repo files${NC}"
+        echo ""
 
         action=$(echo -e "$actions" | fzf --height 20% --layout=reverse --border --prompt="Select Action > " || true)
 
         case "$action" in
             "🚀 Open in Lazygit (TUI)")
                 lazygit -p "$repo_path"
+                ;;
+            "📁 Browse Files (fzf)")
+                (cd "$repo_path" && git ls-files | fzf --height 100% --border --header="Files in $(basename "$repo_path")" --preview="cat {}" --preview-window="right:60%:wrap" || true)
                 ;;
             "📝 Open in Default Editor")
                 open_in_editor "$repo_path"

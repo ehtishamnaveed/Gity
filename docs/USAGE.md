@@ -51,7 +51,10 @@ After selecting a repo (either by browsing or after clone/create), you can:
 ### Open in Lazygit (TUI)
 Launches `lazygit` pointed at that repository. This is the main workflow — browse commits, stage files, resolve merge conflicts, and more.
 
-### Open in VSCode
+### Browse Files (fzf)
+Opens a fuzzy-searchable file browser for the repository. Use arrow keys to navigate, press **Enter** to preview a file, and **Escape** to go back. This shows ALL files in the repo, regardless of whether there are uncommitted changes.
+
+### Open in Default Editor
 Opens the repository using your system's default editor. Uses `$EDITOR` if set, otherwise falls back to your platform's default:
 - Linux: `xdg-open`
 - macOS: `open`
