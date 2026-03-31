@@ -50,7 +50,7 @@ is_windows() {
 open_in_editor() {
     local dir="$1"
     if [ -n "$EDITOR" ]; then
-        cd "$dir" && $EDITOR .
+        (cd "$dir" && $EDITOR .)
     elif is_windows; then
         if command -v wslview &>/dev/null; then
             wslview "$dir"
@@ -235,7 +235,7 @@ while true; do
             if [ -n "$name" ]; then
                 dest="$REPO_DIR/$name"
                 mkdir -p "$dest"
-                cd "$dest" && git init && touch README.md && git add . && git commit -m "Initial commit"
+                git init "$dest" && touch "$dest/README.md" && git -C "$dest" add . && git -C "$dest" commit -m "Initial commit"
                 repo_actions "$dest"
             fi
             ;;
