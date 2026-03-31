@@ -117,12 +117,23 @@ CLIPBOARD_TOOL=$(detect_clipboard)
 # UTILITY FUNCTIONS
 # ============================================================
 
+box_draw() {
+    local width="$1"
+    local char="$2"
+    printf "%${width}s" "" | tr ' ' "$char"
+}
+
+# ============================================================
+# FEATURE 1: Repo Status Overview
+# ============================================================
+
 get_repo_status() {
     local repo="$1"
     local status=""
     local has_changes=0
     local ahead=0
     local behind=0
+    local dirty_files=0
     
     if [ ! -d "$repo/.git" ]; then
         echo "?"
@@ -133,12 +144,15 @@ get_repo_status() {
     
     if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
         has_changes=1
+        dirty_files=$(git status --porcelain 2>/dev/null | wc -l)
     fi
     
-    local revs
-    revs=$(git rev-list --left-right --count '@{upstream}...HEAD' 2>/dev/null || echo "0 0")
-    ahead=$(echo "$revs" | awk '{print $1}')
-    behind=$(echo "$revs" | awk '{print $2}')
+    if command -v git &>/dev/null; then
+        local revs
+        revs=$(git rev-list --left-right --count '@{upstream}...HEAD' 2>/dev/null || echo "0 0")
+        ahead=$(echo "$revs" | awk '{print $1}')
+        behind=$(echo "$revs" | awk '{print $2}')
+    fi
     
     if [ "$has_changes" -eq 1 ]; then
         status="${YELLOW}✎${NC}"
@@ -154,37 +168,62 @@ get_repo_status() {
         status="$status${RED}↓${NC}"
     fi
     
-    echo "$status"
+    echo "$status|$has_changes|$ahead|$behind|$dirty_files"
+}
+
+get_repo_status_simple() {
+    local repo="$1"
+    local status_info
+    status_info=$(get_repo_status "$repo")
+    echo "$status_info" | cut -d'|' -f1
 }
 
 get_repo_details() {
     local repo="$1"
-    cd "$repo" || return ""
-    
-    local has_changes=0
-    local ahead=0
-    local behind=0
-    
-    [ -n "$(git status --porcelain 2>/dev/null)" ] && has_changes=1
-    
-    local revs
-    revs=$(git rev-list --left-right --count '@{upstream}...HEAD' 2>/dev/null || echo "0 0")
-    ahead=$(echo "$revs" | awk '{print $1}')
-    behind=$(echo "$revs" | awk '{print $2}')
+    local status_info="$2"
+    local has_changes=$(echo "$status_info" | cut -d'|' -f2)
+    local ahead=$(echo "$status_info" | cut -d'|' -f3)
+    local behind=$(echo "$status_info" | cut -d'|' -f4)
+    local dirty_files=$(echo "$status_info" | cut -d'|' -f5)
     
     local details=""
-    [ "$has_changes" -eq 1 ] && details="Has uncommitted changes"
-    [ "$ahead" -gt 0 ] && [ -n "$details" ] && details="$details, " && details="${details}${ahead} commit(s) ahead"
-    [ "$behind" -gt 0 ] && [ -n "$details" ] && details="$details, " && details="${details}${behind} commit(s) behind"
-    [ "$ahead" -gt 0 ] && [ "$behind" -eq 0 ] && [ -z "$details" ] && details="${ahead} commit(s) ahead"
-    [ "$behind" -gt 0 ] && [ "$ahead" -eq 0 ] && [ -z "$details" ] && details="${behind} commit(s) behind"
-    [ -z "$details" ] && details="All synced"
+    if [ "$has_changes" -eq 1 ]; then
+        details="$dirty_files file(s) changed"
+    fi
+    if [ "$ahead" -gt 0 ]; then
+        [ -n "$details" ] && details="$details, "
+        details="${details}${ahead} commit(s) ahead"
+    fi
+    if [ "$behind" -gt 0 ]; then
+        [ -n "$details" ] && details="$details, "
+        details="${details}${behind} commit(s) behind"
+    fi
     
     echo "$details"
 }
 
+format_repos_with_status() {
+    local repos_file="$1"
+    local temp_file=$(mktemp)
+    
+    while IFS= read -r repo; do
+        if [ -d "$repo/.git" ]; then
+            local status
+            status=$(get_repo_status_simple "$repo")
+            local name
+            name=$(basename "$repo")
+            local rel_path
+            rel_path="${repo#$HOME/}"
+            echo "${status} ${BOLD}${name}${NC}  ${DIM}~/${rel_path}${NC}" >> "$temp_file"
+        fi
+    done < "$repos_file"
+    
+    cat "$temp_file"
+    rm -f "$temp_file"
+}
+
 # ============================================================
-# FEATURE 1: Search Across Repos
+# FEATURE 2: Search Across Repos
 # ============================================================
 
 search_repos() {
@@ -205,19 +244,22 @@ search_repos() {
     count=$(echo "$all_repos" | wc -l)
     
     echo -e "${BLUE}Searching $count repos for: $query${NC}"
+    echo ""
     
     local temp_results
     temp_results=$(mktemp)
-    local found=0
     
+    local found=0
     while IFS= read -r repo; do
         if [ -d "$repo/.git" ]; then
-            local name
-            name=$(basename "$repo")
             local results
             results=$(git -C "$repo" grep -n --heading --line-number --column "$query" 2>/dev/null || true)
             if [ -n "$results" ]; then
-                echo "$name|$repo" >> "$temp_results"
+                local name
+                name=$(basename "$repo")
+                echo -e "${CYAN}${name}${NC}:" >> "$temp_results"
+                echo "$results" | sed "s/^/  /" >> "$temp_results"
+                echo "" >> "$temp_results"
                 found=$((found + 1))
             fi
         fi
@@ -231,28 +273,22 @@ search_repos() {
     fi
     
     local selected
-    selected=$(cat "$temp_results" | while IFS='|' read -r name path; do
-        echo "$name  ${DIM}$path${NC}"
-    done | fzf --height 80% --border --header="Results for: $query" --prompt="Select > " || true)
-    
+    selected=$(cat "$temp_results" | fzf --height 80% --border --header="Search results for: $query" --prompt="Select result > " || true)
     rm -f "$temp_results"
     
-    if [ -z "$selected" ]; then
-        return
-    fi
-    
-    local repo_name
-    repo_name=$(echo "$selected" | awk '{print $1}')
-    local repo_path
-    repo_path=$(grep "/${repo_name}$" "$CACHE_FILE" | head -1)
-    
-    if [ -n "$repo_path" ] && [ -d "$repo_path" ]; then
-        repo_actions "$repo_path"
+    if [ -n "$selected" ]; then
+        local repo_name
+        repo_name=$(echo "$selected" | head -1 | sed 's/:$//' | tr -d '[:space:]')
+        local repo_path
+        repo_path=$(grep -F "/${repo_name}" "$CACHE_FILE" | awk -F/ '{if ($NF == "'"${repo_name}"'") print}' | head -1)
+        if [ -n "$repo_path" ]; then
+            repo_actions "$repo_path"
+        fi
     fi
 }
 
 # ============================================================
-# FEATURE 2: Bulk Actions
+# FEATURE 3: Bulk Actions
 # ============================================================
 
 bulk_actions() {
@@ -262,166 +298,215 @@ bulk_actions() {
     
     local all_repos
     all_repos=$(cat "$CACHE_FILE")
+    local count
+    count=$(echo "$all_repos" | wc -l)
+    
+    echo -e "${BLUE}Select repositories for bulk action (TAB to multi-select):${NC}"
+    echo ""
     
     local formatted
-    formatted=$(mktemp)
-    while IFS= read -r repo; do
-        if [ -d "$repo/.git" ]; then
-            local status
-            status=$(get_repo_status "$repo")
-            local name
-            name=$(basename "$repo")
-            echo "$status $name  ${DIM}$repo${NC}"
-        fi
-    done <<< "$all_repos" > "$formatted"
+    formatted=$(format_repos_with_status <(echo "$all_repos"))
     
     local selected
-    selected=$(cat "$formatted" | fzf --height 70% --border --header="Select repos (TAB for multi-select)" --prompt="Select > " --multi || true)
-    rm -f "$formatted"
+    selected=$(echo "$formatted" | fzf --height 70% --border --header="Select repos (TAB for multi-select)" --prompt="Select > " --multi || true)
     
     if [ -z "$selected" ]; then
         return
     fi
     
-    local repos=""
+    local repos
     while IFS= read -r line; do
         local name
-        name=$(echo "$line" | sed 's/^[^*↓↑↕✎●]*[^*↓↑↕✎●][[:space:]]*//' | awk '{print $1}')
+        name=$(echo "$line" | sed 's/^[^*↓↑↕✎●]*\s\+//' | awk '{print $1}')
         if [ -n "$name" ]; then
             local repo_path
-            repo_path=$(grep "/${name}$" "$CACHE_FILE" | head -1)
-            [ -n "$repo_path" ] && repos="$repos
+            repo_path=$(grep -F "/${name}" "$CACHE_FILE" | awk -F/ '{if ($NF == "'"${name}"'") print}' | head -1)
+            if [ -n "$repo_path" ]; then
+                repos="$repos
 $repo_path"
+            fi
         fi
     done <<< "$selected"
     
+    echo ""
+    echo -e "${BLUE}Choose bulk action:${NC}"
+    echo ""
+    
     local action
-    action=$(echo -e "Pull All\nPush All\nStatus All\nCommit All\nCustom Command" | fzf --height 25% --border --prompt="Action > " || true)
+    action=$(echo -e "⬇️  Pull All\n⬆️  Push All\n📊 Status All\n💬 Commit All\n🔍 Custom Command (per repo)" | fzf --height 25% --border --prompt="Action > " || true)
     
     local success=0
     local failed=0
     
     case "$action" in
-        "Pull All")
+        "⬇️  Pull All")
+            echo -e "${BLUE}Pulling all repos...${NC}"
             while IFS= read -r repo; do
-                [ -z "$repo" ] && continue
-                echo -e "${CYAN}Pulling: $(basename "$repo")${NC}"
-                git -C "$repo" pull 2>&1 | tail -1 && success=$((success + 1)) || failed=$((failed + 1))
+                if [ -n "$repo" ]; then
+                    echo -e "${CYAN}Pulling: $(basename "$repo")${NC}"
+                    if git -C "$repo" pull 2>&1 | tail -2; then
+                        success=$((success + 1))
+                    else
+                        failed=$((failed + 1))
+                    fi
+                fi
             done <<< "$repos"
             ;;
-        "Push All")
+        "⬆️  Push All")
+            echo -e "${BLUE}Pushing all repos...${NC}"
             while IFS= read -r repo; do
-                [ -z "$repo" ] && continue
-                echo -e "${CYAN}Pushing: $(basename "$repo")${NC}"
-                git -C "$repo" push 2>&1 | tail -1 && success=$((success + 1)) || failed=$((failed + 1))
+                if [ -n "$repo" ]; then
+                    echo -e "${CYAN}Pushing: $(basename "$repo")${NC}"
+                    if git -C "$repo" push 2>&1 | tail -2; then
+                        success=$((success + 1))
+                    else
+                        failed=$((failed + 1))
+                    fi
+                fi
             done <<< "$repos"
             ;;
-        "Status All")
+        "📊 Status All")
             while IFS= read -r repo; do
-                [ -z "$repo" ] && continue
-                echo -e "${BOLD}=== $(basename "$repo") ===${NC}"
-                git -C "$repo" status --short
-                echo ""
+                if [ -n "$repo" ]; then
+                    echo -e "${BOLD}=== $(basename "$repo") ===${NC}"
+                    git -C "$repo" status --short
+                    echo ""
+                fi
             done <<< "$repos"
             echo "Press Enter to continue..."
             read -r
             ;;
-        "Commit All")
+        "💬 Commit All")
             echo -n "Enter commit message: "
             read -r msg
             if [ -n "$msg" ]; then
                 while IFS= read -r repo; do
-                    [ -z "$repo" ] && continue
-                    echo -e "${CYAN}Committing: $(basename "$repo")${NC}"
-                    git -C "$repo" add -A && git -C "$repo" commit -m "$msg" 2>&1 | tail -2
+                    if [ -n "$repo" ]; then
+                        echo -e "${CYAN}Committing: $(basename "$repo")${NC}"
+                        git -C "$repo" add -A && git -C "$repo" commit -m "$msg" 2>&1 | tail -3
+                    fi
                 done <<< "$repos"
             fi
             ;;
-        "Custom Command")
-            echo -n "Enter command: "
+        "🔍 Custom Command (per repo)")
+            echo -n "Enter command (use {repo} for repo path): "
             read -r cmd
             if [ -n "$cmd" ]; then
                 while IFS= read -r repo; do
-                    [ -z "$repo" ] && continue
-                    echo -e "${CYAN}Running in: $(basename "$repo")${NC}"
-                    eval "$(echo "$cmd" | sed "s|{repo}|$repo|g")"
+                    if [ -n "$repo" ]; then
+                        echo -e "${CYAN}Running in: $(basename "$repo")${NC}"
+                        local actual_cmd
+                        actual_cmd=$(echo "$cmd" | sed "s|{repo}|$repo|g")
+                        eval "$actual_cmd"
+                    fi
                 done <<< "$repos"
             fi
             ;;
     esac
     
+    echo ""
     echo -e "${GREEN}Done! $success succeeded, $failed failed${NC}"
     sleep 2
 }
 
 # ============================================================
-# FEATURE 3: GitHub Integration
+# FEATURE 4: GitHub Integration
 # ============================================================
 
 github_repos() {
     if ! command -v gh &>/dev/null; then
         echo -e "${YELLOW}GitHub CLI (gh) is not installed.${NC}"
         echo ""
-        echo -e "${BLUE}Install: sudo apt install gh (Ubuntu) / brew install gh (macOS)${NC}"
+        echo -e "${BLUE}To install, run:${NC}"
+        echo -e "${GREEN}  Arch:       sudo pacman -S github-cli${NC}"
+        echo -e "${GREEN}  Ubuntu:     sudo apt install gh${NC}"
+        echo -e "${GREEN}  macOS:      brew install gh${NC}"
+        echo -e "${GREEN}  Windows:    winget install GitHub.cli${NC}"
+        echo ""
+        echo -e "${BLUE}Or visit: https://cli.github.com${NC}"
+        echo ""
         echo "Press Enter to continue..."
         read -r
         return
     fi
     
     if ! gh auth status &>/dev/null; then
-        echo -e "${YELLOW}Not authenticated. Run: gh auth login${NC}"
+        echo -e "${YELLOW}Not authenticated with GitHub.${NC}"
+        echo ""
+        echo -e "${BLUE}Run: gh auth login${NC}"
+        echo ""
         echo "Press Enter to continue..."
         read -r
         return
     fi
     
-    echo -e "${BLUE}Fetching GitHub repositories...${NC}"
+    echo -e "${BLUE}Fetching your GitHub repositories...${NC}"
     
     local repos
     repos=$(gh repo list --limit 100 --json name,owner,url --jq '.[] | "\(.owner.login)/\(.name)|\(.url)"' 2>/dev/null)
     
     if [ -z "$repos" ]; then
-        echo -e "${YELLOW}No repositories found.${NC}"
+        echo -e "${YELLOW}No repositories found or error fetching.${NC}"
         sleep 2
         return
     fi
     
+    local temp_file
+    temp_file=$(mktemp)
+    while IFS='|' read -r name url; do
+        echo "$name" >> "$temp_file"
+    done <<< "$repos"
+    
     local selected
-    selected=$(echo "$repos" | while IFS='|' read -r name url; do
-        echo "$name"
-    done | fzf --height 70% --border --header="Your GitHub Repositories" --prompt="Select > " || true)
+    selected=$(cat "$temp_file" | fzf --height 70% --border --header="Your GitHub Repositories" --prompt="Select repo > " || true)
+    rm -f "$temp_file"
     
     if [ -z "$selected" ]; then
         return
     fi
     
     local url
-    url=$(echo "$repos" | grep "^$selected|" | cut -d'|' -f2)
+    url=$(echo "$repos" | grep -F "$selected|" | cut -d'|' -f2)
+    
+    echo ""
+    echo -e "${BLUE}Selected: $selected${NC}"
+    echo -e "${BLUE}URL: $url${NC}"
+    echo ""
+    echo -e "${BLUE}Choose action:${NC}"
     
     local action
-    action=$(echo -e "Clone Repository\nOpen in Browser\nView on GitHub" | fzf --height 20% --border --prompt="Action > " || true)
+    action=$(echo -e "📥 Clone Repository\n🌐 Open in Browser\n📂 View on GitHub" | fzf --height 20% --border --prompt="Action > " || true)
     
     case "$action" in
-        "Clone Repository")
+        "📥 Clone Repository")
             local dest="$REPO_DIR/$(echo "$selected" | tr '/' '-')"
             if [ -d "$dest" ]; then
-                echo -e "${YELLOW}Already exists: $dest${NC}"
+                echo -e "${YELLOW}Repository already exists at: $dest${NC}"
                 repo_actions "$dest"
             else
+                echo -e "${BLUE}Cloning to: $dest${NC}"
                 git clone "$url" "$dest" && repo_actions "$dest"
             fi
             ;;
-        "Open in Browser")
-            xdg-open "$url" 2>/dev/null || open "$url" 2>/dev/null
+        "🌐 Open in Browser")
+            if command -v xdg-open &>/dev/null; then
+                xdg-open "$url"
+            elif command -v open &>/dev/null; then
+                open "$url"
+            fi
             ;;
-        "View on GitHub")
-            xdg-open "https://github.com/$selected" 2>/dev/null || open "https://github.com/$selected" 2>/dev/null
+        "📂 View on GitHub")
+            if command -v xdg-open &>/dev/null; then
+                xdg-open "https://github.com/$selected"
+            elif command -v open &>/dev/null; then
+                open "https://github.com/$selected"
+            fi
             ;;
     esac
 }
 
 # ============================================================
-# VISUALIZATION: Dashboard (Repos Needing Work)
+# FEATURE 5: Repos Needing Attention Dashboard
 # ============================================================
 
 show_dashboard() {
@@ -429,173 +514,163 @@ show_dashboard() {
         refresh_cache
     fi
     
-    echo -e "${BLUE}Scanning repos...${NC}"
+    echo -e "${BLUE}Scanning repos for status...${NC}"
     
     local all_repos
     all_repos=$(cat "$CACHE_FILE")
+    local count
+    count=$(echo "$all_repos" | wc -l)
     
     local critical_file=$(mktemp)
     local warning_file=$(mktemp)
     local healthy_file=$(mktemp)
-    local all_repos_file=$(mktemp)
+    
+    local critical_count=0
+    local warning_count=0
+    local healthy_count=0
     
     while IFS= read -r repo; do
-        [ ! -d "$repo/.git" ] && continue
-        
-        local status
-        status=$(get_repo_status "$repo")
-        local name
-        name=$(basename "$repo")
-        local details
-        details=$(get_repo_details "$repo")
-        
-        local line="$status $name  ${DIM}$details${NC}"
-        echo "$name|$repo|$status" >> "$all_repos_file"
-        
-        local has_changes=0
-        local ahead=0
-        local behind=0
-        
-        cd "$repo" || continue
-        [ -n "$(git status --porcelain 2>/dev/null)" ] && has_changes=1
-        local revs
-        revs=$(git rev-list --left-right --count '@{upstream}...HEAD' 2>/dev/null || echo "0 0")
-        ahead=$(echo "$revs" | awk '{print $1}')
-        behind=$(echo "$revs" | awk '{print $2}')
-        
-        if [ "$has_changes" -eq 1 ] || { [ "$ahead" -gt 0 ] && [ "$behind" -gt 0 ]; }; then
-            echo "$line" >> "$critical_file"
-        elif [ "$ahead" -gt 0 ] || [ "$behind" -gt 0 ]; then
-            echo "$line" >> "$warning_file"
-        else
-            echo "$line" >> "$healthy_file"
+        if [ -d "$repo/.git" ]; then
+            local status_info
+            status_info=$(get_repo_status "$repo")
+            local status=$(echo "$status_info" | cut -d'|' -f1)
+            local has_changes=$(echo "$status_info" | cut -d'|' -f2)
+            local ahead=$(echo "$status_info" | cut -d'|' -f3)
+            local behind=$(echo "$status_info" | cut -d'|' -f4)
+            local dirty_files=$(echo "$status_info" | cut -d'|' -f5)
+            local name=$(basename "$repo")
+            
+            local category=""
+            local line="${status} ${BOLD}${name}${NC}"
+            
+            if [ "$has_changes" -eq 1 ] || [ "$ahead" -gt 0 ] && [ "$behind" -gt 0 ]; then
+                category="critical"
+                local details=""
+                [ "$has_changes" -eq 1 ] && details="${dirty_files} file(s) changed"
+                [ "$ahead" -gt 0 ] && [ -n "$details" ] && details="$details, " && details="${details}${ahead}↑"
+                [ "$behind" -gt 0 ] && [ -n "$details" ] && details="$details, " && details="${details}${behind}↓"
+                [ -z "$details" ] && [ "$ahead" -gt 0 ] && details="${ahead} commit(s) ahead" && [ "$behind" -gt 0 ] && details="${details}, ${behind} commit(s) behind"
+                line="$line  ${DIM}$details${NC}"
+            elif [ "$ahead" -gt 0 ] || [ "$behind" -gt 0 ]; then
+                category="warning"
+                local details=""
+                [ "$ahead" -gt 0 ] && details="${ahead} ahead"
+                [ "$behind" -gt 0 ] && [ -n "$details" ] && details="$details, " && details="${details}${behind} behind"
+                [ "$ahead" -eq 0 ] && [ "$behind" -gt 0 ] && details="${behind} commit(s) behind"
+                [ "$ahead" -gt 0 ] && [ "$behind" -eq 0 ] && details="${ahead} commit(s) ahead"
+                line="$line  ${DIM}$details${NC}"
+            else
+                category="healthy"
+                line="$line  ${DIM}All synced${NC}"
+            fi
+            
+            case "$category" in
+                critical)
+                    echo "$line" >> "$critical_file"
+                    critical_count=$((critical_count + 1))
+                    ;;
+                warning)
+                    echo "$line" >> "$warning_file"
+                    warning_count=$((warning_count + 1))
+                    ;;
+                healthy)
+                    echo "$line" >> "$healthy_file"
+                    healthy_count=$((healthy_count + 1))
+                    ;;
+            esac
         fi
     done <<< "$all_repos"
     
-    echo -e "${BLUE}╔════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║${NC}         ${BOLD}📊 REPOS NEEDING ATTENTION${NC}                       ${BLUE}║${NC}"
-    echo -e "${BLUE}╠════════════════════════════════════════════════════════════════╣${NC}"
+    clear
+    local width=60
+    echo -e "${BLUE}╔$(box_draw $width '═')╗${NC}"
+    echo -e "${BLUE}║${NC}$(printf "%*s" $(((width + 30) / 2)) "")${BOLD}📊 REPOS NEEDING ATTENTION${NC}$(printf "%*s" $(((width - 30) / 2)) "")"
+    echo -e "${BLUE}╠$(box_draw $width '═')╣${NC}"
+    echo -e "${BLUE}║${NC}  Total: $count repos scanned"
+    echo -e "${BLUE}╠$(box_draw $width '═')╣${NC}"
     
-    [ -s "$critical_file" ] && echo -e "${BLUE}║${NC}  ${RED}🔴 CRITICAL (needs immediate attention)${NC}" && echo -e "${BLUE}╠════════════════════════════════════════════════════════════════╣${NC}"
-    [ -s "$critical_file" ] && cat "$critical_file" | while IFS= read -r line; do echo -e "${BLUE}║${NC}  $line"; done
+    if [ "$critical_count" -gt 0 ]; then
+        echo -e "${BLUE}║${NC}  ${RED}🔴 CRITICAL ($critical_count repos)${NC}$(printf "%*s" $((width - 30)) "")"
+        echo -e "${BLUE}║${NC}$(box_draw $width ' ')"
+        while IFS= read -r line; do
+            echo -e "${BLUE}║${NC}  $line$(printf "%*s" $((width - ${#line} - 2)) "")"
+        done < "$critical_file"
+        echo -e "${BLUE}╠$(box_draw $width '═')╣${NC}"
+    fi
     
-    [ -s "$warning_file" ] && echo -e "${BLUE}║${NC}  ${YELLOW}🟡 WARNINGS (sync needed)${NC}" && echo -e "${BLUE}╠════════════════════════════════════════════════════════════════╣${NC}"
-    [ -s "$warning_file" ] && cat "$warning_file" | while IFS= read -r line; do echo -e "${BLUE}║${NC}  $line"; done
+    if [ "$warning_count" -gt 0 ]; then
+        echo -e "${BLUE}║${NC}  ${YELLOW}🟡 WARNINGS ($warning_count repos)${NC}$(printf "%*s" $((width - 30)) "")"
+        echo -e "${BLUE}║${NC}$(box_draw $width ' ')"
+        while IFS= read -r line; do
+            echo -e "${BLUE}║${NC}  $line$(printf "%*s" $((width - ${#line} - 2)) "")"
+        done < "$warning_file"
+        echo -e "${BLUE}╠$(box_draw $width '═')╣${NC}"
+    fi
     
-    [ -s "$healthy_file" ] && echo -e "${BLUE}║${NC}  ${GREEN}🟢 HEALTHY (all synced)${NC}" && echo -e "${BLUE}╠════════════════════════════════════════════════════════════════╣${NC}"
-    [ -s "$healthy_file" ] && cat "$healthy_file" | while IFS= read -r line; do echo -e "${BLUE}║${NC}  $line"; done
+    if [ "$healthy_count" -gt 0 ]; then
+        echo -e "${BLUE}║${NC}  ${GREEN}🟢 HEALTHY ($healthy_count repos)${NC}$(printf "%*s" $((width - 28)) "")"
+        echo -e "${BLUE}║${NC}$(box_draw $width ' ')"
+        while IFS= read -r line; do
+            echo -e "${BLUE}║${NC}  $line$(printf "%*s" $((width - ${#line} - 2)) "")"
+        done < "$healthy_file"
+    fi
     
-    echo -e "${BLUE}╚════════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${BLUE}╚$(box_draw $width '═')╝${NC}"
     echo ""
+    echo -e "${DIM}  Legend: ${GREEN}●${NC} Clean  ${YELLOW}✎${NC} Changes  ${CYAN}↑${NC} Ahead  ${RED}↓${NC} Behind  ${MAGENTA}↕${NC} Diverged${NC}"
     
-    local selected
-    selected=$(cat "$all_repos_file" | while IFS='|' read -r name repo status; do
-        echo "$status $name  ${DIM}$repo${NC}"
-    done | fzf --height 80% --border --header="Select a repo to open" --prompt="> " || true)
+    rm -f "$critical_file" "$warning_file" "$healthy_file"
     
-    rm -f "$critical_file" "$warning_file" "$healthy_file" "$all_repos_file"
-    
-    if [ -z "$selected" ]; then
-        return
-    fi
-    
-    local repo_name
-    repo_name=$(echo "$selected" | sed 's/^[^*↓↑↕✎●]*[^*↓↑↕✎●][[:space:]]*//' | awk '{print $1}')
-    local repo_path
-    repo_path=$(grep "/${repo_name}$" "$CACHE_FILE" | head -1)
-    
-    [ -n "$repo_path" ] && [ -d "$repo_path" ] && repo_actions "$repo_path"
-}
-
-# ============================================================
-# VISUALIZATION: Stale Repo Finder
-# ============================================================
-
-show_stale_repos() {
-    if [ ! -s "$CACHE_FILE" ]; then
-        refresh_cache
-    fi
-    
-    echo -e "${BLUE}Checking repo activity...${NC}"
-    
-    local all_repos
-    all_repos=$(cat "$CACHE_FILE")
-    local temp_file=$(mktemp)
-    local stale_count=0
+    local all_repos_file=$(mktemp)
+    local critical_count2=0 warning_count2=0 healthy_count2=0
     
     while IFS= read -r repo; do
         [ ! -d "$repo/.git" ] && continue
-        
         local name
         name=$(basename "$repo")
-        local last_date
-        last_date=$(git -C "$repo" log -1 --format="%ai" 2>/dev/null | awk '{print $1}')
-        local days_since=0
-        
-        if [ -n "$last_date" ]; then
-            days_since=$(python3 -c "from datetime import datetime; print((datetime.now() - datetime.strptime('$last_date', '%Y-%m-%d')).days)" 2>/dev/null || echo "0")
-        fi
-        
-        local last_msg
-        last_msg=$(git -C "$repo" log -1 --format="%s" 2>/dev/null | cut -c1-30)
-        [ -z "$last_msg" ] && last_msg="No commits"
-        
-        local indicator="🟢"
-        local urgency="recent"
-        
-        if [ "$days_since" -eq 0 ]; then
-            indicator="🟢"
-            urgency="recent"
-        elif [ "$days_since" -lt 30 ]; then
-            indicator="🟢"
-            urgency="recent"
-        elif [ "$days_since" -lt 60 ]; then
-            indicator="🟡"
-            urgency="stale"
-            stale_count=$((stale_count + 1))
-        elif [ "$days_since" -lt 90 ]; then
-            indicator="🔴"
-            urgency="very_stale"
-            stale_count=$((stale_count + 1))
-        else
-            indicator="⚠️"
-            urgency="abandoned"
-            stale_count=$((stale_count + 1))
-        fi
-        
-        if [ "$urgency" != "recent" ]; then
-            echo "$indicator|$days_since|$name|$last_msg|$repo" >> "$temp_file"
-        fi
+        echo "$name|$repo" >> "$all_repos_file"
     done <<< "$all_repos"
     
-    if [ "$stale_count" -eq 0 ]; then
-        echo -e "${GREEN}All repos are active! No stale repos found.${NC}"
-        rm -f "$temp_file"
-        sleep 2
-        return
-    fi
-    
     local selected
-    selected=$(cat "$temp_file" | sort -t'|' -k2 -rn | while IFS='|' read -r indicator days name msg repo; do
-        echo "$indicator $name  ${DIM}($days days) $msg${NC}"
-    done | fzf --height 80% --border --header="Stale Repos - Select to open" --prompt="> " || true)
+    selected=$(cat "$all_repos_file" | while IFS='|' read -r name repo; do
+        [ ! -d "$repo/.git" ] && continue
+        local status_info
+        status_info=$(get_repo_status "$repo")
+        local status=$(echo "$status_info" | cut -d'|' -f1)
+        local has_changes=$(echo "$status_info" | cut -d'|' -f2)
+        local ahead=$(echo "$status_info" | cut -d'|' -f3)
+        local behind=$(echo "$status_info" | cut -d'|' -f4)
+        local dirty_files=$(echo "$status_info" | cut -d'|' -f5)
+        local details=""
+        if [ "$has_changes" -eq 1 ]; then
+            details="${dirty_files} file(s) changed"
+        fi
+        [ "$ahead" -gt 0 ] && [ -n "$details" ] && details="$details, " && details="${details}${ahead}↑"
+        [ "$behind" -gt 0 ] && [ -n "$details" ] && details="$details, " && details="${details}${behind}↓"
+        [ "$ahead" -gt 0 ] && [ "$behind" -eq 0 ] && [ -z "$details" ] && details="${ahead} commit(s) ahead"
+        [ "$behind" -gt 0 ] && [ "$ahead" -eq 0 ] && [ -z "$details" ] && details="${behind} commit(s) behind"
+        [ -z "$details" ] && details="All synced"
+        echo "$status ${BOLD}${name}${NC}  ${DIM}$details${NC}"
+    done | fzf --height 80% --border --header="Dashboard - Select a repo" --prompt="> " || true)
     
-    rm -f "$temp_file"
+    rm -f "$all_repos_file"
     
     if [ -z "$selected" ]; then
         return
     fi
     
-    local repo_name
-    repo_name=$(echo "$selected" | sed 's/^[^\s]*\s[[:space:]]*//' | awk '{print $1}')
+    local name
+    name=$(echo "$selected" | sed 's/^[^*↓↑↕✎●]*\s\+//' | awk '{print $1}')
     local repo_path
-    repo_path=$(grep "/${repo_name}$" "$CACHE_FILE" | head -1)
+    repo_path=$(grep -F "/${name}" "$CACHE_FILE" | awk -F/ '{if ($NF == "'"${name}"'") print}' | head -1)
     
-    [ -n "$repo_path" ] && [ -d "$repo_path" ] && repo_actions "$repo_path"
+    if [ -n "$repo_path" ] && [ -d "$repo_path" ]; then
+        repo_actions "$repo_path"
+    fi
 }
 
 # ============================================================
-# VISUALIZATION: Branch Health
+# FEATURE 7: Branch Health Overview
 # ============================================================
 
 show_branch_health() {
@@ -603,40 +678,75 @@ show_branch_health() {
         refresh_cache
     fi
     
-    echo -e "${BLUE}Analyzing branch health...${NC}"
-    
     local all_repos
     all_repos=$(cat "$CACHE_FILE")
+    
+    echo -e "${BLUE}Analyzing branch health...${NC}"
+    
     local temp_file=$(mktemp)
-    local count=0
+    local repo_count=0
     
     while IFS= read -r repo; do
-        [ ! -d "$repo/.git" ] && continue
-        
-        local name
-        name=$(basename "$repo")
-        local branch_count
-        branch_count=$(git -C "$repo" branch -a 2>/dev/null | wc -l)
-        local current_branch
-        current_branch=$(git -C "$repo" branch --show-current 2>/dev/null || echo "detached")
-        
-        local stale_branches
-        stale_branches=$(git -C "$repo" for-each-ref --sort=-committerdate --format='%(refname:short) %(committerdate:relative)' refs/heads 2>/dev/null | awk '$2 ~ /months|year/ {print $1}' | wc -l)
-        
-        local indicator="🟢"
-        [ "$stale_branches" -gt 2 ] && indicator="🟡"
-        [ "$stale_branches" -gt 5 ] && indicator="🔴"
-        
-        local stale_info=""
-        [ "$stale_branches" -gt 0 ] && stale_info=" • ${RED}$stale_branches stale${NC}"
-        
-        echo "$indicator|$name|$branch_count|$current_branch|$stale_info|$repo" >> "$temp_file"
-        count=$((count + 1))
+        if [ -d "$repo/.git" ]; then
+            local name
+            name=$(basename "$repo")
+            
+            local branch_count
+            branch_count=$(git -C "$repo" branch -a 2>/dev/null | wc -l)
+            
+            local current_branch
+            current_branch=$(git -C "$repo" branch --show-current 2>/dev/null || echo "detached")
+            
+            local stale_branches=0
+            local stale_list=$(git -C "$repo" for-each-ref --sort=-committerdate --format='%(refname:short) %(committerdate:relative)' refs/heads 2>/dev/null | awk '$2 ~ /months|year/ {print $1}' | head -3)
+            [ -n "$stale_list" ] && stale_branches=$(echo "$stale_list" | wc -l)
+            
+            local unmerged_count=0
+            if [ -n "$current_branch" ] && [ "$current_branch" != "detached" ]; then
+                unmerged_count=$(git -C "$repo" cherry -v 2>/dev/null | wc -l)
+            fi
+            
+            local status="${GREEN}🟢${NC}"
+            if [ "$stale_branches" -gt 2 ]; then
+                status="${YELLOW}🟡${NC}"
+            fi
+            if [ "$stale_branches" -gt 5 ]; then
+                status="${RED}🔴${NC}"
+            fi
+            
+            local stale_info=""
+            if [ "$stale_branches" -gt 0 ]; then
+                stale_info=" • ${RED}$stale_branches stale${NC}"
+            fi
+            
+            echo "$status ${BOLD}${name}${NC}  ${DIM}$branch_count branches${NC} • ${CYAN}$current_branch${NC}${stale_info}" >> "$temp_file"
+            repo_count=$((repo_count + 1))
+        fi
     done <<< "$all_repos"
     
+    clear
+    local width=65
+    echo -e "${BLUE}╔$(box_draw $width '═')╗${NC}"
+    echo -e "${BLUE}║${NC}$(printf "%*s" $(((width + 18) / 2)) "")${BOLD}🌿 BRANCH HEALTH${NC}$(printf "%*s" $(((width - 18) / 2)) "")"
+    echo -e "${BLUE}╠$(box_draw $width '═')╣${NC}"
+    
+    if [ "$repo_count" -eq 0 ]; then
+        echo -e "${BLUE}║${NC}$(printf "%*s" $(((width + 20) / 2)) "")${YELLOW}No repos found${NC}"
+    else
+        while IFS= read -r line; do
+            echo -e "${BLUE}║${NC}  $line$(printf "%*s" $((width - ${#line} - 2)) "")"
+        done < "$temp_file"
+    fi
+    
+    rm -f "$temp_file"
+    
+    echo -e "${BLUE}╚$(box_draw $width '═')╝${NC}"
+    echo ""
+    echo -e "${DIM}  Legend: ${GREEN}🟢${NC} Healthy  ${YELLOW}🟡${NC} Needs cleanup  ${RED}🔴${NC} Needs attention${NC}"
+    
     local selected
-    selected=$(cat "$temp_file" | while IFS='|' read -r indicator name branches current stale info repo; do
-        echo "$indicator $name  ${DIM}($branches branches) • $current${stale}${NC}"
+    selected=$(cat "$temp_file" | while IFS= read -r line; do
+        echo "$line"
     done | fzf --height 80% --border --header="Branch Health - Select a repo" --prompt="> " || true)
     
     rm -f "$temp_file"
@@ -645,16 +755,16 @@ show_branch_health() {
         return
     fi
     
-    local repo_name
-    repo_name=$(echo "$selected" | sed 's/^[^\s]*\s[[:space:]]*//' | awk '{print $1}')
+    local name
+    name=$(echo "$selected" | sed 's/^[^\s]*\s[[:space:]]*//' | awk '{print $1}')
     local repo_path
-    repo_path=$(grep "/${repo_name}$" "$CACHE_FILE" | head -1)
+    repo_path=$(grep -F "/${name}" "$CACHE_FILE" | awk -F/ '{if ($NF == "'"${name}"'") print}' | head -1)
     
     [ -n "$repo_path" ] && [ -d "$repo_path" ] && repo_actions "$repo_path"
 }
 
 # ============================================================
-# VISUALIZATION: Activity Timeline
+# FEATURE 8: Activity Timeline
 # ============================================================
 
 show_activity_timeline() {
@@ -664,52 +774,169 @@ show_activity_timeline() {
         refresh_cache
     fi
     
-    echo -e "${BLUE}Fetching activity for last $days days...${NC}"
-    
     local all_repos
     all_repos=$(cat "$CACHE_FILE")
+    
+    echo -e "${BLUE}Fetching activity for last $days days...${NC}"
+    
     local temp_file=$(mktemp)
     local commit_count=0
     
     while IFS= read -r repo; do
-        [ ! -d "$repo/.git" ] && continue
-        
-        local name
-        name=$(basename "$repo")
-        
-        git -C "$repo" log --since="$days days ago" --format="|%h|%s|%ai|%an" 2>/dev/null | grep '|' | while IFS='|' read -r hash msg date author; do
-            [ -z "$hash" ] && continue
-            local day
-            day=$(echo "$date" | awk '{print $1}')
-            echo "$day|$name|$msg" >> "$temp_file"
-            commit_count=$((commit_count + 1))
-        done
+        if [ -d "$repo/.git" ]; then
+            local name
+            name=$(basename "$repo")
+            
+            local commits
+            commits=$(git -C "$repo" log --since="$days days ago" --format="|%h|%s|%ai|%an" 2>/dev/null || true)
+            
+            while IFS='|' read -r hash msg date author; do
+                [ -z "$hash" ] && continue
+                local day
+                day=$(echo "$date" | awk '{print $1}')
+                echo "$day|$name|$msg|$date" >> "$temp_file"
+                commit_count=$((commit_count + 1))
+            done <<< "$commits"
+        fi
     done <<< "$all_repos"
     
-    if [ "$commit_count" -eq 0 ]; then
-        echo -e "${YELLOW}No activity in the last $days days.${NC}"
-        rm -f "$temp_file"
-        sleep 2
-        return
-    fi
+    clear
+    local width=65
+    echo -e "${BLUE}╔$(box_draw $width '═')╗${NC}"
+    echo -e "${BLUE}║${NC}$(printf "%*s" $(((width + 24) / 2)) "")${BOLD}📅 ACTIVITY TIMELINE${NC}$(printf "%*s" $(((width - 24) / 2)) "")"
+    echo -e "${BLUE}║${NC}$(printf "%*s" $(((width + 24) / 2)) "")${DIM}(Last $days days)${NC}"
+    echo -e "${BLUE}╠$(box_draw $width '═')╣${NC}"
+    echo -e "${BLUE}║${NC}  Total: $commit_count commits across all repos"
+    echo -e "${BLUE}╠$(box_draw $width '═')╣${NC}"
     
-    local selected
-    selected=$(cat "$temp_file" | sort -r | while IFS='|' read -r day name msg; do
-        echo "${CYAN}$day${NC}  ${BOLD}$name${NC}  $msg"
-    done | fzf --height 80% --border --header="Activity Timeline (Last $days days) - Select to open repo" --prompt="> " || true)
+    if [ "$commit_count" -eq 0 ]; then
+        echo -e "${BLUE}║${NC}$(printf "%*s" $(((width + 25) / 2)) "")${YELLOW}No recent activity${NC}"
+    else
+        local current_day=""
+        while IFS='|' read -r day repo msg date; do
+            if [ "$day" != "$current_day" ]; then
+                current_day="$day"
+                echo -e "${BLUE}║${NC}$(box_draw $width ' ')"
+                echo -e "${BLUE}║${NC}  ${BOLD}${day}${NC}$(printf "%*s" $((width - ${#day} - 2)) "")"
+                echo -e "${BLUE}║${NC}$(box_draw $width ' ')"
+            fi
+            local short_msg
+            short_msg=$(echo "$msg" | cut -c1-45)
+            echo -e "${BLUE}║${NC}    ${CYAN}$repo${NC}  $short_msg"
+        done < <(sort -r "$temp_file")
+    fi
     
     rm -f "$temp_file"
     
-    if [ -z "$selected" ]; then
-        return
+    echo -e "${BLUE}╚$(box_draw $width '═')╝${NC}"
+    local selected
+    selected=$(echo -e "1 Day\n7 Days\n30 Days\nExit" | fzf --height 20% --border --prompt="Timeline range > " || true)
+    
+    rm -f "$temp_file"
+    
+    case "$selected" in
+        "1 Day")    show_activity_timeline 1 ;;
+        "7 Days")   show_activity_timeline 7 ;;
+        "30 Days")  show_activity_timeline 30 ;;
+    esac
+}
+
+# ============================================================
+# FEATURE 9: Work Session Summary
+# ============================================================
+
+show_work_summary() {
+    local hours=${1:-24}
+    
+    if [ ! -s "$CACHE_FILE" ]; then
+        refresh_cache
     fi
     
-    local repo_name
-    repo_name=$(echo "$selected" | sed 's/^[^\s]*\s[[:space:]]*//' | awk '{print $1}')
-    local repo_path
-    repo_path=$(grep "/${repo_name}$" "$CACHE_FILE" | head -1)
+    local all_repos
+    all_repos=$(cat "$CACHE_FILE")
     
-    [ -n "$repo_path" ] && [ -d "$repo_path" ] && repo_actions "$repo_path"
+    echo -e "${BLUE}Calculating work summary...${NC}"
+    
+    local temp_file=$(mktemp)
+    local total_commits=0
+    local total_lines_added=0
+    local total_lines_deleted=0
+    local repos_touched=0
+    declare -A commit_counts
+    declare -A file_counts
+    
+    while IFS= read -r repo; do
+        if [ -d "$repo/.git" ]; then
+            local name
+            name=$(basename "$repo")
+            
+            local commits
+            commits=$(git -C "$repo" log --since="$hours hours ago" --format="|%H" 2>/dev/null || true)
+            
+            local repo_commits=0
+            while IFS='|' read -r hash; do
+                [ -z "$hash" ] && continue
+                ((repo_commits++))
+                
+                local diff_stats
+                diff_stats=$(git -C "$repo" show "$hash" --stat --format="" 2>/dev/null | tail -1)
+                local added
+                added=$(echo "$diff_stats" | grep -o '[0-9]\+ insertion' | grep -o '[0-9]\+' || echo "0")
+                local deleted
+                deleted=$(echo "$diff_stats" | grep -o '[0-9]\+ deletion' | grep -o '[0-9]\+' || echo "0")
+                
+                total_lines_added=$((total_lines_added + added))
+                total_lines_deleted=$((total_lines_deleted + deleted))
+                
+                local files_changed
+                files_changed=$(echo "$diff_stats" | grep -o '[0-9]\+ file' | grep -o '[0-9]\+' || echo "0")
+                file_counts["$name"]=$((${file_counts["$name"]:-0} + files_changed))
+            done <<< "$commits"
+            
+            if [ "$repo_commits" -gt 0 ]; then
+                commit_counts["$name"]=$repo_commits
+                total_commits=$((total_commits + repo_commits))
+                repos_touched=$((repos_touched + 1))
+                echo "$name|$repo_commits|${file_counts["$name"]:-0}" >> "$temp_file"
+            fi
+        fi
+    done <<< "$all_repos"
+    
+    clear
+    local width=60
+    echo -e "${BLUE}╔$(box_draw $width '═')╗${NC}"
+    echo -e "${BLUE}║${NC}$(printf "%*s" $(((width + 26) / 2)) "")${BOLD}📊 WORK SUMMARY${NC}$(printf "%*s" $(((width - 26) / 2)) "")"
+    echo -e "${BLUE}║${NC}$(printf "%*s" $(((width + 20) / 2)) "")${DIM}(Last $hours hours)${NC}"
+    echo -e "${BLUE}╠$(box_draw $width '═')╣${NC}"
+    echo -e "${BLUE}║${NC}$(box_draw $width ' ')"
+    echo -e "${BLUE}║${NC}   ${BOLD}$repos_touched repos touched${NC}  •  ${BOLD}$total_commits commits${NC}  •  ${GREEN}+$total_lines_added${NC} / ${RED}-$total_lines_deleted lines"
+    echo -e "${BLUE}║${NC}$(box_draw $width ' ')"
+    
+    if [ "$repos_touched" -gt 0 ]; then
+        echo -e "${BLUE}║${NC}  ${BOLD}Most Active Repos:${NC}$(printf "%*s" $((width - 24)) "")"
+        echo -e "${BLUE}║${NC}$(box_draw $width ' ')"
+        
+        while IFS='|' read -r name commits files; do
+            local bar_width=20
+            local max_commits=10
+            local filled=$((commits * bar_width / max_commits))
+            [ "$filled" -gt "$bar_width" ] && filled=$bar_width
+            local bar=$(printf "%${filled}s" "" | tr ' ' '█')
+            local remaining=$((bar_width - filled))
+            [ "$remaining" -lt 0 ] && remaining=0
+            bar="$bar$(printf "%${remaining}s" "" | tr ' ' '░')"
+            echo -e "${BLUE}║${NC}    ${CYAN}$name${NC}  ${GREEN}$bar${NC}  $commits commits"
+        done < <(sort -t'|' -k2 -rn "$temp_file")
+    else
+        echo -e "${BLUE}║${NC}$(printf "%*s" $(((width + 15) / 2)) "")${YELLOW}No commits yet${NC}"
+    fi
+    
+    rm -f "$temp_file"
+    
+    echo -e "${BLUE}║${NC}$(box_draw $width ' ')"
+    echo -e "${BLUE}╚$(box_draw $width '═')╝${NC}"
+    echo ""
+    echo -e "${DIM}  [1] Last hour  [24] Last 24h  [168] Last week  [Q] Quit${NC}"
 }
 
 # ============================================================
@@ -717,7 +944,7 @@ show_activity_timeline() {
 # ============================================================
 
 refresh_cache() {
-    echo -e "${BLUE}Scanning for Git repositories...${NC}"
+    echo -e "${BLUE}Scanning for Git repositories in $HOME...${NC}"
     
     find "$HOME/Work" "$HOME/Plugins" "$HOME/Documents" "$HOME/Desktop" "$HOME/Luminor" -maxdepth 4 -name ".git" -type d 2>/dev/null > "$CACHE_FILE.tmp"
     
@@ -734,22 +961,21 @@ refresh_cache() {
     
     local count
     count=$(wc -l < "$CACHE_FILE")
-    echo -e "${GREEN}Found $count repositories.${NC}"
+    echo -e "${GREEN}Scan complete. Found $count repositories.${NC}"
     sleep 1
 }
 
 clone_repo() {
-    echo -n "Enter Repository URL: "
+    echo -n "Enter Repository URL (HTTPS or SSH): "
     read -r url
     if [ -n "$url" ]; then
-        local repo_name
         repo_name=$(basename "$url" .git)
-        local dest="$REPO_DIR/$repo_name"
+        dest="$REPO_DIR/$repo_name"
         if [ ! -d "$dest" ]; then
             echo -e "${BLUE}Cloning into $dest...${NC}"
             git clone "$url" "$dest" && repo_actions "$dest"
         else
-            echo -e "${YELLOW}Directory already exists.${NC}"
+            echo "Error: Directory already exists at $dest"
             sleep 2
         fi
     fi
@@ -758,22 +984,22 @@ clone_repo() {
 repo_actions() {
     local repo_path="$1"
     
-    grep -v "^$repo_path$" "$RECENT_FILE" > "$RECENT_FILE.tmp" 2>/dev/null
+    grep -vF "$repo_path" "$RECENT_FILE" > "$RECENT_FILE.tmp" 2>/dev/null || true
     printf '%s\n' "$repo_path" | cat - "$RECENT_FILE.tmp" | head -n 10 > "$RECENT_FILE"
     rm -f "$RECENT_FILE.tmp"
     
     local status
-    status=$(get_repo_status "$repo_path")
-    local details
-    details=$(get_repo_details "$repo_path")
+    status=$(get_repo_status_simple "$repo_path")
     
     local actions="🚀 Open in Lazygit (TUI)
 📁 Browse Files (fzf)
 📝 Open in Default Editor
 📂 Open in File Manager"
     
-    [ -n "$CLIPBOARD_TOOL" ] && actions="$actions
+    if [ -n "$CLIPBOARD_TOOL" ]; then
+        actions="$actions
 📋 Copy Path to Clipboard"
+    fi
     actions="$actions
 🔙 Back to Gity"
     
@@ -782,12 +1008,12 @@ repo_actions() {
         echo "===================================================="
         echo -e "  ${BOLD}$(basename "$repo_path")${NC}  $status"
         echo "  PATH: $repo_path"
-        echo "  STATUS: $details"
         echo "===================================================="
         echo ""
+        echo -e "${YELLOW}  Tip: Use 'Browse Files' to see all repo files${NC}"
+        echo ""
         
-        local action
-        action=$(echo -e "$actions" | fzf --height 25% --layout=reverse --border --prompt="Select Action > " || true)
+        action=$(echo -e "$actions" | fzf --height 20% --layout=reverse --border --prompt="Select Action > " || true)
         
         case "$action" in
             "🚀 Open in Lazygit (TUI)")
@@ -803,7 +1029,10 @@ repo_actions() {
                 xdg-open "$repo_path"
                 ;;
             "📋 Copy Path to Clipboard")
-                copy_path "$repo_path" && echo "Path copied!" && sleep 1
+                if copy_path "$repo_path"; then
+                    echo "Path copied!"
+                    sleep 1
+                fi
                 ;;
             *)
                 break
@@ -820,57 +1049,42 @@ open_existing() {
     local all_repos
     all_repos=$( (cat "$RECENT_FILE"; cat "$CACHE_FILE") | awk 'NF && !x[$0]++')
     
-    local formatted=$(mktemp)
-    while IFS= read -r repo; do
-        [ ! -d "$repo/.git" ] && continue
-        local status
-        status=$(get_repo_status "$repo")
-        local name
-        name=$(basename "$repo")
-        local details
-        details=$(get_repo_details "$repo")
-        echo "$status $name  ${DIM}$details${NC}"
-    done <<< "$all_repos" > "$formatted"
+    local formatted
+    formatted=$(format_repos_with_status <(echo "$all_repos"))
     
-    if [ ! -s "$formatted" ]; then
-        echo -e "${YELLOW}No repositories found. Run Refresh to rescan.${NC}"
-        rm -f "$formatted"
+    if [ -z "$formatted" ]; then
+        echo -e "${YELLOW}No repositories found. Run 'Refresh' to rescan.${NC}"
         sleep 2
         return
     fi
     
     local selected
-    selected=$(cat "$formatted" | fzf --height 80% --border --header="Select Repository - ●Clean ✎Changes ↑Ahead ↓Behind ↕Diverged" --prompt="Search > " || true)
-    rm -f "$formatted"
+    selected=$(echo "$formatted" | fzf --height 70% --border --header="Status: ●Clean ✎Changes ↑Ahead ↓Behind ↕Diverged" --prompt="Search > " || true)
     
     if [ -z "$selected" ]; then
         return
     fi
     
     local name
-    name=$(echo "$selected" | sed 's/^[^*↓↑↕✎●]*[^*↓↑↕✎●][[:space:]]*//' | awk '{print $1}')
+    name=$(echo "$selected" | sed 's/^[^*↓↑↕✎●]*\s\+//' | awk '{print $1}')
     
     local repo_path
-    repo_path=$(grep "/${name}$" "$CACHE_FILE" | head -1)
+    repo_path=$(grep -F "/${name}" "$CACHE_FILE" | awk -F/ '{if ($NF == "'"${name}"'") print}' | head -1)
     
-    [ -n "$repo_path" ] && [ -d "$repo_path" ] && repo_actions "$repo_path"
+    if [ -n "$repo_path" ] && [ -d "$repo_path" ]; then
+        repo_actions "$repo_path"
+    fi
 }
 
-# ============================================================
-# MAIN MENU
-# ============================================================
-
-show_main_menu() {
+while true; do
     clear
-    echo -e "${BLUE}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║${NC}              ${BOLD}${WHITE}GITY${NC} ${DIM}-${NC} ${BOLD}TUI Git Hub${NC}               ${BLUE}║${NC}"
-    echo -e "${BLUE}╚═══════════════════════════════════════════════════════╝${NC}"
+    echo -e "${BLUE}╔═══════════════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║${NC}           ${BOLD}${WHITE}GITY${NC} ${DIM}-${NC} ${BOLD}TUI Git Hub${NC}               ${BLUE}║${NC}"
+    echo -e "${BLUE}╚═══════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "  ${BOLD}Status:${NC}  ${GREEN}●${NC} Clean  ${YELLOW}✎${NC} Changes  ${CYAN}↑${NC} Ahead  ${RED}↓${NC} Behind  ${MAGENTA}↕${NC} Diverged"
+    echo -e "  ${BOLD}Status Indicators:${NC}  ${GREEN}●${NC} Clean  ${YELLOW}✎${NC} Changes  ${CYAN}↑${NC} Ahead  ${RED}↓${NC} Behind  ${MAGENTA}↕${NC} Diverged"
     echo ""
     
-    local choice
-    while true; do
     choice=$(echo -e "📊 Dashboard (Repos Needing Work)
 📂 Browse All Repositories
 📅 Activity Timeline
@@ -882,7 +1096,7 @@ show_main_menu() {
 🔗 Clone Repository
 ✨ Create New Repository
 🔄 Refresh Cache
-❌ Exit" | fzf --height 50% --layout=reverse --border --prompt="Main Menu > " || true)
+❌ Exit" | fzf --height 45% --layout=reverse --border --prompt="Main Menu > " || true)
     
     case "$choice" in
         "📊 Dashboard (Repos Needing Work)")
@@ -904,19 +1118,19 @@ show_main_menu() {
             bulk_actions
             ;;
         "🔍 Search Across Repos")
-            search_across_repos
+            search_repos
             ;;
         "🐙 GitHub Repos")
-            browse_github_repos
+            github_repos
             ;;
         "🔗 Clone Repository")
             clone_repo
             ;;
         "✨ Create New Repository")
-            echo -n "Enter repository name: "
+            echo -n "Enter new repository name: "
             read -r name
             if [ -n "$name" ]; then
-                local dest="$REPO_DIR/$name"
+                dest="$REPO_DIR/$name"
                 mkdir -p "$dest"
                 git init "$dest" && touch "$dest/README.md" && git -C "$dest" add . && git -C "$dest" commit -m "Initial commit"
                 repo_actions "$dest"
@@ -926,9 +1140,7 @@ show_main_menu() {
             refresh_cache
             ;;
         *)
-            return 1
+            exit 0
             ;;
     esac
-    done
-}
-show_main_menu
+done
