@@ -1006,22 +1006,56 @@ open_existing() {
 }
 
 merge_branch() {
-    if [ ! -d ".git" ]; then
-        echo -e "${RED}Not a git repository!${NC}"
+    if [ ! -s "$CACHE_FILE" ]; then
+        refresh_cache
+    fi
+    
+    local repos
+    repos=$(cat "$CACHE_FILE")
+    
+    if [ -z "$repos" ]; then
+        echo -e "${YELLOW}No repositories found. Run Refresh Cache first.${NC}"
+        sleep 2
+        return
+    fi
+    
+    local selected_repo
+    selected_repo=$(echo "$repos" | while IFS= read -r repo; do
+        if [ -d "$repo/.git" ]; then
+            local name
+            name=$(basename "$repo")
+            local rel_path
+            rel_path="${repo#$HOME/}"
+            echo "${BOLD}${name}${NC}  ${DIM}~/${rel_path}${NC}"
+        fi
+    done | fzf --height 60% --border --header="Select repository to merge branches" --prompt="Select repo > " || true)
+    
+    if [ -z "$selected_repo" ]; then
+        return
+    fi
+    
+    local repo_name
+    repo_name=$(echo "$selected_repo" | sed 's/^[[:space:]]*//' | awk '{print $1}')
+    
+    local repo_path
+    repo_path=$(grep -F "/${repo_name}" "$CACHE_FILE" | awk -F/ '{if ($NF == "'"${repo_name}"'") print}' | head -1)
+    
+    if [ ! -d "$repo_path/.git" ]; then
+        echo -e "${RED}Not a valid git repository!${NC}"
         sleep 2
         return
     fi
     
     local current_branch
-    current_branch=$(git branch --show-current)
+    current_branch=$(git -C "$repo_path" branch --show-current)
     if [ -z "$current_branch" ]; then
-        echo -e "${RED}Currently in detached HEAD state. Cannot merge.${NC}"
+        echo -e "${RED}Detached HEAD state. Cannot merge.${NC}"
         sleep 2
         return
     fi
     
     local branches
-    branches=$(git branch --format='%(refname:short)' | grep -v "^${current_branch}$")
+    branches=$(git -C "$repo_path" branch --format='%(refname:short)' | grep -v "^${current_branch}$")
     
     if [ -z "$branches" ]; then
         echo -e "${YELLOW}No other branches to merge.${NC}"
@@ -1029,15 +1063,15 @@ merge_branch() {
         return
     fi
     
-    local selected
-    selected=$(echo "$branches" | fzf --height 60% --border --header="Current: ${YELLOW}${current_branch}${NC}  →  Select branch to merge into" --prompt="Merge > " || true)
+    local branch_to_merge
+    branch_to_merge=$(echo "$branches" | fzf --height 60% --border --header="Current: ${YELLOW}${current_branch}${NC}  →  Select branch to merge into" --prompt="Merge > " || true)
     
-    if [ -z "$selected" ]; then
+    if [ -z "$branch_to_merge" ]; then
         return
     fi
     
     local revs
-    revs=$(git rev-list --left-right --count "${current_branch}...${selected}" 2>/dev/null || echo "0 0")
+    revs=$(git -C "$repo_path" rev-list --left-right --count "${current_branch}...${branch_to_merge}" 2>/dev/null || echo "0 0")
     local commits_behind
     commits_behind=$(echo "$revs" | awk '{print $1}')
     local commits_ahead
@@ -1048,10 +1082,12 @@ merge_branch() {
     clear
     echo ""
     echo -e "${BLUE}╔════════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║${NC}            ${BOLD}MERGE PREVIEW${NC}                  ${BLUE}║${NC}"
+    echo -e "${BLUE}║${NC}              ${BOLD}MERGE PREVIEW${NC}                 ${BLUE}║${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "  ${GREEN}Merge:${NC}    ${selected}"
+    echo -e "  ${DIM}Repository: ${BOLD}${repo_name}${NC}"
+    echo ""
+    echo -e "  ${GREEN}Merge:${NC}     ${branch_to_merge}"
     echo -e "  ${YELLOW}Into:${NC}      ${current_branch}"
     echo ""
     
@@ -1062,7 +1098,7 @@ merge_branch() {
     fi
     
     if [ "$commits_behind" -gt 0 ]; then
-        echo -e "  ${CYAN}📥 ${selected} is ${commits_behind} commit(s) ahead${NC}"
+        echo -e "  ${CYAN}📥 ${branch_to_merge} is ${commits_behind} commit(s) ahead${NC}"
     fi
     
     if [ "$commits_ahead" -gt 0 ]; then
@@ -1076,9 +1112,9 @@ merge_branch() {
     fi
     
     echo ""
-    echo -e "${DIM}  Recent commits in ${selected}:${NC}"
+    echo -e "${DIM}  Recent commits in ${branch_to_merge}:${NC}"
     echo -e "${DIM}  ─────────────────────────────────────${NC}"
-    git log "${selected}" --oneline -5 | sed 's/^/    /'
+    git -C "$repo_path" log "${branch_to_merge}" --oneline -5 | sed 's/^/    /'
     echo ""
     echo -e "${BLUE}╔════════════════════════════════════════════════╗${NC}"
     echo -e "${BLUE}║${NC}  Are you sure you want to merge?               ${BLUE}║${NC}"
@@ -1095,14 +1131,14 @@ merge_branch() {
     fi
     
     echo ""
-    echo -e "${BLUE}Merging ${selected} into ${current_branch}...${NC}"
+    echo -e "${BLUE}Merging ${branch_to_merge} into ${current_branch}...${NC}"
     echo ""
     
-    if git merge "${selected}" --no-edit 2>&1; then
+    if git -C "$repo_path" merge "${branch_to_merge}" --no-edit 2>&1; then
         echo ""
         echo -e "${GREEN}✅ Merge successful!${NC}"
         echo ""
-        git log --oneline -3
+        git -C "$repo_path" log --oneline -3
         sleep 2
     else
         echo ""
