@@ -56,9 +56,11 @@ def run_command(cmd, cwd=None, capture=True):
     except Exception:
         return "" if capture else 1
 
-def run_fzf(options, header="Select an option", multi=False, preview=None, height='60%'):
+def run_fzf(options, header="Select an option", multi=False, preview=None, height='60%', reverse=False):
     """Run fzf with given options and return selection."""
-    cmd = ['fzf', '--ansi', '--layout=reverse', '--header', header, '--height', height, '--border']
+    cmd = ['fzf', '--ansi', '--header', header, '--height', height, '--border']
+    if reverse:
+        cmd.append('--layout=reverse')
     if multi:
         cmd.append('--multi')
     if preview:
@@ -172,22 +174,30 @@ def pr_detail_view(repo_path, pr_info):
             input()
         elif "Accept & Merge" in choice:
             print(f"{BLUE}Merging PR #{pr_number}...{NC}")
-            res = subprocess.run(["gh", "pr", "merge", str(pr_number), "--merge"], cwd=repo_path)
-            if res.returncode == 0:
+            res = run_command(["gh", "pr", "merge", str(pr_number), "--merge"], cwd=repo_path, capture=False)
+            if res == 0:
                 print(f"{GREEN}✓ PR merged successfully!{NC}")
-                time.sleep(2)
-                break
+            else:
+                print(f"{RED}✗ Failed to merge PR{NC}")
+            time.sleep(2)
+            break
         elif "Send Message" in choice:
             msg = input("Enter comment: ").strip()
             if msg:
-                subprocess.run(["gh", "pr", "comment", str(pr_number), "--body", msg], cwd=repo_path)
-                print(f"{GREEN}✓ Comment added.{NC}")
+                res = run_command(["gh", "pr", "comment", str(pr_number), "--body", msg], cwd=repo_path, capture=False)
+                if res == 0:
+                    print(f"{GREEN}✓ Comment added.{NC}")
+                else:
+                    print(f"{RED}✗ Failed to add comment{NC}")
                 time.sleep(1)
         elif "Close" in choice:
             confirm = input(f"Are you sure you want to close PR #{pr_number}? (y/N): ")
             if confirm.lower() == 'y':
-                subprocess.run(["gh", "pr", "close", str(pr_number)], cwd=repo_path)
-                print(f"{RED}PR closed.{NC}")
+                res = run_command(["gh", "pr", "close", str(pr_number)], cwd=repo_path, capture=False)
+                if res == 0:
+                    print(f"{GREEN}✓ PR closed.{NC}")
+                else:
+                    print(f"{RED}✗ Failed to close PR{NC}")
                 time.sleep(2)
                 break
 
@@ -326,7 +336,7 @@ def repo_actions(repo_path):
         elif "Lazygit" in choice: subprocess.run(['lazygit', '-p', repo_path])
         elif "Browse" in choice:
             git_ls = subprocess.Popen(["git", "ls-files"], cwd=repo_path, stdout=subprocess.PIPE, text=True)
-            subprocess.run(['fzf', '--layout=reverse', '--height', '100%', '--border', '--preview', f'cat {repo_path}/{{}}'], stdin=git_ls.stdout)
+            subprocess.run(['fzf', '--height', '100%', '--border', '--preview', f'cat {repo_path}/{{}}'], stdin=git_ls.stdout)
         elif "Editor" in choice: open_in_editor(repo_path)
         elif "Manager" in choice:
             if sys.platform == 'darwin': subprocess.run(['open', repo_path])
@@ -477,7 +487,7 @@ def main_menu():
         
         print(f"  {BOLD}Indicators:{NC} {GREEN}●{NC} Clean {YELLOW}✎{NC} Changes {CYAN}↑{NC} Ahead {RED}↓{NC} Behind\n")
         options = ["📊 Dashboard", f"📥 Pull Requests{pr_notifier}", "📂 Browse Repos", "📅 Activity", "⚡ Bulk Actions", "🔍 Search", "🐙 GitHub Repos", "🔗 Clone", "✨ New Repo", "🔄 Refresh Cache", "❌ Exit"]
-        choice = run_fzf(options, header="MAIN MENU", height='50%')
+        choice = run_fzf(options, header="MAIN MENU", height='50%', reverse=True)
         if not choice or "❌" in choice: sys.exit(0)
         elif "Dashboard" in choice: show_dashboard()
         elif "Pull Requests" in choice: pull_requests_menu(); start_pr_fetch()
