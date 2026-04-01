@@ -326,7 +326,7 @@ def open_in_editor(repo_path):
 
 def repo_actions(repo_path):
     name = os.path.basename(repo_path)
-    actions = ["🚀 Open in Lazygit (TUI)", "📁 Browse Files (fzf)", "📝 Open in Default Editor", "📂 Open in File Manager", "🔙 Back to Gity"]
+    actions = ["🚀 Open in Lazygit (TUI)", "📁 Browse Files (fzf)", "📝 Open in Default Editor", "📂 Open in File Manager", "🔀 Sync with GitHub (Pull/Push)", "📥 Create Pull Request", "🗑️ Delete Repository", "🔙 Back to Gity"]
     while True:
         clear_screen()
         status = get_repo_status_simple(repo_path)
@@ -342,6 +342,118 @@ def repo_actions(repo_path):
             if sys.platform == 'darwin': subprocess.run(['open', repo_path])
             elif sys.platform == 'win32': os.startfile(repo_path)
             else: subprocess.run(['xdg-open', repo_path])
+        elif "Sync" in choice:
+            sync_menu(repo_path)
+        elif "Create" in choice:
+            create_pr_menu(repo_path)
+        elif "Delete" in choice:
+            confirm = input(f"Delete '{name}'? This will remove ALL local files. Type 'yes' to confirm: ")
+            if confirm.lower() == 'yes':
+                shutil.rmtree(repo_path)
+                with open(CACHE_FILE, "r") as f:
+                    repos = f.read().splitlines()
+                repos = [r for r in repos if r != repo_path]
+                with open(CACHE_FILE, "w") as f:
+                    f.write("\n".join(repos))
+                print(f"{GREEN}✓ Repository deleted.{NC}")
+                time.sleep(1)
+                break
+            else:
+                print(f"{YELLOW}Cancelled.{NC}")
+                time.sleep(1)
+
+def sync_menu(repo_path):
+    """Sync with GitHub - pull and push."""
+    name = os.path.basename(repo_path)
+    remote = run_command(["git", "remote", "get-url", "origin"], cwd=repo_path)
+    
+    if not remote or "github.com" not in remote:
+        print(f"{RED}No GitHub remote found.{NC}")
+        time.sleep(2)
+        return
+    
+    while True:
+        clear_screen()
+        print(f"====================================================\n  {BOLD}Sync: {name}{NC}\n  Remote: {remote[:50]}...\n====================================================\n")
+        
+        action_opts = ["⬇️ Pull from Remote", "⬆️ Push to Remote", "⬇️⬆️ Pull & Push", "🔙 Back"]
+        choice = run_fzf(action_opts, header="Sync Options", height='30%')
+        
+        if not choice or "Back" in choice:
+            break
+        elif "Pull" in choice and "Push" not in choice:
+            print(f"{BLUE}Pulling from remote...{NC}")
+            res = run_command(["git", "pull"], cwd=repo_path, capture=False)
+            if res == 0:
+                print(f"{GREEN}✓ Pull successful.{NC}")
+            else:
+                print(f"{RED}✗ Pull failed.{NC}")
+            time.sleep(2)
+        elif "Push" in choice and "Pull" not in choice:
+            print(f"{BLUE}Pushing to remote...{NC}")
+            res = run_command(["git", "push"], cwd=repo_path, capture=False)
+            if res == 0:
+                print(f"{GREEN}✓ Push successful.{NC}")
+            else:
+                print(f"{RED}✗ Push failed.{NC}")
+            time.sleep(2)
+        elif "Pull & Push" in choice:
+            print(f"{BLUE}Pulling and pushing...{NC}")
+            res1 = run_command(["git", "pull"], cwd=repo_path, capture=False)
+            res2 = run_command(["git", "push"], cwd=repo_path, capture=False)
+            if res1 == 0 and res2 == 0:
+                print(f"{GREEN}✓ Sync successful.{NC}")
+            else:
+                print(f"{RED}✗ Sync failed.{NC}")
+            time.sleep(2)
+
+def create_pr_menu(repo_path):
+    """Create a pull request from current branch."""
+    name = os.path.basename(repo_path)
+    remote = run_command(["git", "remote", "get-url", "origin"], cwd=repo_path)
+    
+    if not remote or "github.com" not in remote:
+        print(f"{RED}No GitHub remote found.{NC}")
+        time.sleep(2)
+        return
+    
+    branches = run_command(["git", "branch", "-a"], cwd=repo_path)
+    if not branches:
+        print(f"{RED}No branches found.{NC}")
+        time.sleep(2)
+        return
+    
+    branch_list = [b.strip() for b in branches.splitlines() if b.strip() and not b.startswith("remotes/")]
+    current_branch = run_command(["git", "branch", "--show-current"], cwd=repo_path)
+    
+    selected = run_fzf(branch_list, header="Select branch to create PR from", height='60%')
+    if not selected:
+        return
+    
+    target = run_fzf(["main", "master"], header="Select target branch", height='20%')
+    if not target:
+        target = "main"
+    
+    print(f"\n{BLUE}Creating PR from '{selected}' to '{target}'...{NC}")
+    
+    title = input("PR Title: ").strip()
+    if not title:
+        print(f"{YELLOW}Title required.{NC}")
+        time.sleep(1)
+        return
+    
+    body = input("PR Description (optional): ").strip()
+    
+    cmd = ["gh", "pr", "create", "--base", target, "--head", selected, "--title", title]
+    if body:
+        cmd.extend(["--body", body])
+    
+    res = run_command(cmd, cwd=repo_path, capture=False)
+    if res == 0:
+        print(f"{GREEN}✓ Pull Request created!{NC}")
+    else:
+        print(f"{RED}✗ Failed to create PR.{NC}")
+    time.sleep(2)
 
 def open_existing():
     if not CACHE_FILE.exists(): refresh_cache()
