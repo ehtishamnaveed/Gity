@@ -111,30 +111,11 @@ function Install-Git {
         return $true
     }
     
-    Write-Step "Installing git..."
-    
-    # Get latest Git for Windows installer URL from GitHub API
-    $arch = if ([Environment]::Is64BitOperatingSystem) { "64" } else { "32" }
-    $gitUrl = Get-GitHubReleaseAsset -Repo "git-for-windows/git" -Pattern "Git-${arch}-bit.*\.exe"
-    
-    if (!$gitUrl) {
-        # Fallback to direct URL
-        $gitUrl = "https://github.com/git-for-windows/git/releases/latest/download/Git-${arch}-bit.exe"
-    }
-    
-    Write-Step "Downloading Git installer..."
-    $tempGit = Join-Path $env:TEMP "git-installer.exe"
-    
-    if (!(Download-File -Url $gitUrl -OutputPath $tempGit)) {
-        Write-Warn "Could not download Git. Please install manually from: https://git-scm.com/download/win"
-        return $false
-    }
-    
-    Write-Step "Running Git installer (silent)..."
+    Write-Step "Installing git via winget..."
     
     try {
-        # Run installer silently with default options
-        $process = Start-Process -FilePath $tempGit -ArgumentList "/VERYSILENT", "/NORESTART", "/NOCANCEL", "/SP-", "/COMPONENTS=icons,ext\regshell,ext\regshellfolder,ext\gitlfs,assoc,assoc_sh" -Wait -PassThru -NoNewWindow
+        # Run winget silently in background
+        $process = Start-Process -FilePath "winget" -ArgumentList "install", "--id", "Git.Git", "-e", "--source", "winget", "--silent", "--accept-source-agreements", "--accept-package-agreements" -Wait -PassThru -NoNewWindow
         
         if ($process.ExitCode -eq 0) {
             # Refresh PATH
@@ -142,16 +123,14 @@ function Install-Git {
             Write-Success "Git installed successfully"
             return $true
         } else {
-            Write-Err "Git installation failed (exit code: $($process.ExitCode))"
+            Write-Warn "winget install failed (exit code: $($process.ExitCode))"
             Write-Warn "Please install Git manually from: https://git-scm.com/download/win"
             return $false
         }
     } catch {
-        Write-Err "Failed to run Git installer: $_"
+        Write-Err "Failed to install Git: $_"
         Write-Warn "Please install Git manually from: https://git-scm.com/download/win"
         return $false
-    } finally {
-        if (Test-Path $tempGit) { Remove-Item $tempGit -Force -ErrorAction SilentlyContinue }
     }
 }
 
