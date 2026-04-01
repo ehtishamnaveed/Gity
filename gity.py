@@ -58,7 +58,7 @@ def run_command(cmd, cwd=None, capture=True):
 
 def run_fzf(options, header="Select an option", multi=False, preview=None, height='60%'):
     """Run fzf with given options and return selection."""
-    cmd = ['fzf', '--ansi', '--header', header, '--height', height, '--border']
+    cmd = ['fzf', '--ansi', '--layout=reverse', '--header', header, '--height', height, '--border']
     if multi:
         cmd.append('--multi')
     if preview:
@@ -326,7 +326,7 @@ def repo_actions(repo_path):
         elif "Lazygit" in choice: subprocess.run(['lazygit', '-p', repo_path])
         elif "Browse" in choice:
             git_ls = subprocess.Popen(["git", "ls-files"], cwd=repo_path, stdout=subprocess.PIPE, text=True)
-            subprocess.run(['fzf', '--height', '100%', '--border', '--preview', f'cat {repo_path}/{{}}'], stdin=git_ls.stdout)
+            subprocess.run(['fzf', '--layout=reverse', '--height', '100%', '--border', '--preview', f'cat {repo_path}/{{}}'], stdin=git_ls.stdout)
         elif "Editor" in choice: open_in_editor(repo_path)
         elif "Manager" in choice:
             if sys.platform == 'darwin': subprocess.run(['open', repo_path])
