@@ -4,7 +4,20 @@
 
 No more hunting for repos across your filesystem. Gity automatically discovers all your Git repositories and brings them together with beautiful visualizations, status indicators, cross-repo search, bulk actions, and GitHub integration.
 
+**Available for Linux, macOS, and Windows (native!)**
+
 ![Gity Screenshot](docs/screenshot.png)
+
+## Quick Install
+
+| Platform | Command |
+|----------|---------|
+| **Linux / macOS** | `curl -sSL https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/install.sh \| bash` |
+| **Windows** | `irm https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/install.ps1 \| iex` |
+
+That's it. One command per platform. Everything installs automatically.
+
+---
 
 ## Features
 
@@ -15,50 +28,70 @@ No more hunting for repos across your filesystem. Gity automatically discovers a
 - **Auto-Discovery** — Scans your home directory and finds all Git repos automatically
 - **Repo Status Overview** — See which repos have changes, need pushing, or need pulling
 - **Fuzzy Search** — Instantly filter through hundreds of repos with fzf
-- **Search Across Repos** — Search for any text or file across all your repos in one query
 - **Bulk Actions** — Pull, push, commit, or run custom commands on multiple repos at once
-- **GitHub Integration** — Browse and clone repos from your GitHub account directly
+- **GitHub Integration** — Browse and clone repos from your GitHub account (with organization support)
 - **🔀 Merge Branches** — Merge branches in any repo with preview and confirmation
 - **Recent First** — Your most-used repos always appear at the top
 - **Clone & Create** — Clone new repos or create new ones from the app
 - **Quick Actions** — Open in Lazygit, your default editor, or your file manager
-- **Smart Clipboard** — Copies repo paths when clipboard tools are available
-- **Zero Config** — Works out of the box on Linux, macOS, and Windows (WSL / Git Bash)
+- **Auto-Update** — Get notified of new versions and update with one click
+- **Zero Config** — Works out of the box
 
 ## Requirements
 
-- [lazygit](https://github.com/jesseduffield/lazygit) — The terminal UI for Git commands
-- [fzf](https://github.com/junegunn/fzf) — Fuzzy finder for the interface
-- `git` — Version control
-- A way to open directories — uses `$EDITOR`, `xdg-open`, or platform defaults
-- A clipboard tool (`xclip`, `xsel`, `wl-copy`, or Windows `clip`) — optional
-- `gh` CLI — optional, for GitHub integration
-- `python3` — optional, for stale repo detection
+Gity handles all dependencies automatically. Just run the installer and it installs everything you need.
+
+### What Gets Installed
+
+| Tool | Purpose | Install Method |
+|------|---------|----------------|
+| **git** | Version control | winget / apt / brew / pacman |
+| **fzf** | Fuzzy finder | winget / apt / brew / pacman |
+| **lazygit** | Terminal UI for Git | winget / apt / brew / pacman |
+| **gh** | GitHub CLI (optional) | winget / apt / brew / pacman |
 
 ## Installation
 
-### One-Line Install (All Platforms)
+### Linux
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/install.sh | bash
 ```
 
-That's it. One command. Works on Linux, macOS, and Windows (WSL / Git Bash).
-
-The installer will:
-- Download Gity to `~/.local/bin/gity`
-- Make it executable
+The installer auto-detects your distro and installs dependencies. Supported: Arch Linux, Ubuntu/Debian, Fedora, OpenSUSE, Void Linux, and more.
 
 After installation, make sure `~/.local/bin` is in your PATH.
 
-### Prerequisites for Windows
+### macOS
 
-Since Gity is a bash script, Windows users need **WSL** or **Git Bash** installed first:
+```bash
+curl -sSL https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/install.sh | bash
+```
 
-- **WSL (recommended):** Open PowerShell and run `wsl --install`, then restart your PC
-- **Git Bash:** Download from [git-scm.com](https://git-scm.com/downloads)
+Make sure [Homebrew](https://brew.sh) is installed first. The installer uses Homebrew to install dependencies.
 
-After that, run the one-liner above and Gity will install everything.
+### Windows (Native)
+
+Open **PowerShell** (or Windows Terminal) and run:
+
+```powershell
+irm https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/install.ps1 | iex
+```
+
+The installer will:
+1. Check for `winget` (Windows Package Manager)
+2. Auto-install: git, fzf, lazygit, and gh CLI
+3. Download Gity to `%LOCALAPPDATA%\Programs\Gity`
+4. Add to your PATH
+5. Ready to use!
+
+After installation, open a **new** terminal and run:
+
+```powershell
+gity
+```
+
+> **Note:** This is a native Windows version. No WSL or Git Bash required.
 
 ### Manual Install
 
@@ -66,32 +99,22 @@ After that, run the one-liner above and Gity will install everything.
 # Linux / macOS
 curl -sL https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/gity.sh -o ~/.local/bin/gity
 chmod +x ~/.local/bin/gity
-
-# Windows (WSL / Git Bash)
-curl -sL https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/gity.sh -o ~/gity
-chmod +x ~/gity
 ```
 
-## Supported Platforms
-
-### Linux
-
-The installer auto-detects your distro and installs dependencies. Supported:
-Arch Linux, Ubuntu/Debian, Fedora, OpenSUSE, Void Linux, and more.
-
-### macOS
-
-The installer uses Homebrew to install dependencies. Make sure [Homebrew](https://brew.sh) is installed first.
-
-### Windows
-
-Run the installer inside **WSL** or **Git Bash**. The installer handles everything else.
+```powershell
+# Windows
+irm https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/gity.ps1 -OutFile "$env:LOCALAPPDATA\Programs\Gity\gity.ps1"
+```
 
 ## Usage
 
 Run Gity from your terminal:
 
 ```bash
+# Linux / macOS
+gity
+
+# Windows
 gity
 ```
 
@@ -101,14 +124,10 @@ gity
 |---|---|
 | **📊 Dashboard** | Visual dashboard showing repos needing attention |
 | **📂 Browse All Repositories** | Search and open an existing repo (with status indicators) |
-| **📅 Activity Timeline** | View recent commits across all repos |
 | **⚡ Bulk Actions** | Perform actions on multiple repos at once |
-| **🔍 Search Across Repos** | Search for text or files across all repos |
-| **🐙 GitHub Repos** | Browse and clone from your GitHub account |
-| **🔀 Merge Branch** | Merge branches in any repo with preview and confirmation |
-| **🔗 Clone Repository** | Clone a new repo from URL |
-| **✨ Create New Repository** | Initialize a new repo with an initial commit |
+| **🐙 GitHub Repos** | Browse and clone from your GitHub account (with org support) |
 | **🔄 Refresh Cache** | Rescan for repositories |
+| **↻ Update Gity** | Check and install updates |
 | **❌ Exit** | Quit Gity |
 
 ### Status Indicators
@@ -128,21 +147,23 @@ The dashboard shows repos categorized by urgency:
 - **🟡 NEED SYNC** — Repos that are ahead or behind
 - **🟢 ALL SYNCED** — Repos that are fully synced
 
-### Activity Timeline
+### Bulk Actions
 
-View recent commits across all your repos:
-- Shows last 7 days of activity by default
-- Groups commits by day
-- Filter by timeframe: 1 day, 7 days, or 30 days
+When you select **Bulk Actions**, you can:
+- **Pull All** — Run `git pull` on each selected repo
+- **Push All** — Run `git push` on each selected repo
+- **Status All** — View git status of all selected repos
+- **Commit All** — Add all changes and commit with a single message
 
-### Merge Branch
+### GitHub Integration
 
-Merge branches in any repository with a step-by-step wizard:
-1. Select the repository
-2. Choose the target branch (the branch to merge INTO)
-3. Choose the source branch (the branch to merge)
-4. Preview the merge with commit counts
-5. Confirm or cancel
+When you select **GitHub Repos**:
+1. Choose your user account or an organization
+2. Browse repositories within that account/org
+3. **Clone** — Clone to your local machine
+4. **Open in Browser** — Open in your default browser
+
+Requires `gh` CLI to be installed and authenticated. If not authenticated, Gity will prompt you to connect.
 
 ### Repository Actions
 
@@ -151,10 +172,9 @@ After selecting a repo, you can:
 | Action | Description |
 |---|---|
 | **Open in Lazygit (TUI)** | Launch lazygit in that repository |
-| **Browse Files (fzf)** | Browse all repo files with fuzzy search and preview |
-| **Open in Default Editor** | Open repo using your `$EDITOR`, or your system's default |
 | **Open in File Manager** | Open repo folder in your file browser |
-| **Copy Path to Clipboard** | Copy the repo path to your clipboard |
+| **Open in VS Code** | Open repo in VS Code (Windows) |
+| **Copy Path** | Copy the repo path to your clipboard |
 
 ### Keyboard Navigation
 
@@ -163,43 +183,30 @@ After selecting a repo, you can:
 - Press **Escape** or select empty to go back
 - Type to **fuzzy search** filter the list
 - **Tab** to multi-select in Bulk Actions
-- Press **Q** to quit in visualization views
 
-### Bulk Actions
+## Auto-Update
 
-When you select **Bulk Actions**, you can:
-- **Pull All** — Run `git pull` on each selected repo
-- **Push All** — Run `git push` on each selected repo
-- **Status All** — View git status of all selected repos
-- **Commit All** — Add all changes and commit with a single message
-- **Custom Command** — Run any shell command on each repo (use `{repo}` for the path)
+Gity checks for updates on each run. If a new version is available:
 
-### GitHub Integration
-
-When you select **GitHub Repos**:
-- Shows your top 100 GitHub repositories
-- **Clone** — Clone to your local machine
-- **Open in Browser** — Open in your default browser
-- **View on GitHub** — Open the GitHub page
-
-Requires `gh` CLI to be installed and authenticated (`gh auth login`).
-
-### Search Across Repos
-
-Enter any text or file pattern to search across all your repositories at once. Results show the file path and matching line. Select a result to open that repo.
+1. A notification banner appears in the main menu
+2. Select **Update Gity** from the menu
+3. The latest version downloads automatically
+4. Restart Gity to use the new version
 
 ## How It Works
 
 1. **First Run** — Gity scans your home directory for `.git` folders and builds a cache
 2. **Status Checking** — Shows real-time git status indicators for each repo
-3. **Visualizations** — Beautiful dashboards for attention, activity, staleness, and branch health
-4. **Caching** — Repo list is stored in `~/.cache/lazygit_repos` for fast access
-5. **Recent Repos** — Your last 10 opened repos are tracked in `~/.cache/lazygit_recent`
-6. **Smart Scanning** — Deep scan `~/Work`, `~/Plugins`, `~/Documents`, `~/Desktop`, `~/Luminor`, plus broad home scan (excluding cache directories)
+3. **Visualizations** — Beautiful dashboards for attention and activity
+4. **Caching** — Repo list is stored for fast access
+5. **Recent Repos** — Your last 10 opened repos are tracked
+6. **Smart Scanning** — Deep scan common directories plus broad home scan
 
 ## Configuration
 
 Gity works with zero configuration, but you can customize:
+
+### Linux / macOS (`gity.sh`)
 
 | Variable | Default | Description |
 |---|---|---|
@@ -207,9 +214,16 @@ Gity works with zero configuration, but you can customize:
 | `CACHE_FILE` | `~/.cache/lazygit_repos` | Repo discovery cache |
 | `RECENT_FILE` | `~/.cache/lazygit_recent` | Recently opened repos |
 
-To override, edit `gity.sh` directly.
+### Windows (`gity.ps1`)
+
+| Variable | Default | Description |
+|---|---|---|
+| `$RepoDir` | `~/Documents/Github` | Where cloned repos are saved |
+| `$CacheDir` | `%APPDATA%/gity` | Cache directory |
 
 ## Uninstall
+
+### Linux / macOS
 
 ```bash
 rm ~/.local/bin/gity
@@ -218,6 +232,15 @@ rm ~/.cache/lazygit_recent
 ```
 
 Remove the PATH line from your `~/.bashrc` or `~/.zshrc` if added by the installer.
+
+### Windows
+
+```powershell
+Remove-Item "$env:LOCALAPPDATA\Programs\Gity" -Recurse -Force
+Remove-Item "$env:APPDATA\gity" -Recurse -Force
+```
+
+Remove Gity from your PATH in Environment Variables if needed.
 
 ## Contributing
 
