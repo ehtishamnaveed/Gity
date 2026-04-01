@@ -1,8 +1,10 @@
 # Gity Windows Installer
 # One-command setup for Windows users
+# Downloads everything via curl - no winget needed
 # Usage: irm https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/install.ps1 | iex
 
 $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\Gity"
+$BinDir = Join-Path $InstallDir "bin"
 $CacheDir = Join-Path $env:APPDATA "gity"
 $GityUrl = "https://raw.githubusercontent.com/ehtishamnaveed/Gity/master"
 
@@ -32,78 +34,67 @@ function Check-Command {
 }
 
 # ============================================================
-# CURL SETUP - Windows has curl.exe in System32
+# CURL SETUP
 # ============================================================
 
-function Setup-Curl {
-    # Check for curl.exe explicitly (not PowerShell's curl alias)
-    $curlPath = Join-Path $env:SystemRoot "System32\curl.exe"
+function Get-CurlPath {
+    # Check System32 first (Windows 10/11 has curl.exe here)
+    $systemCurl = Join-Path $env:SystemRoot "System32\curl.exe"
+    if (Test-Path $systemCurl) { return $systemCurl }
     
-    if (Test-Path $curlPath) {
+    # Check PATH
+    $pathCurl = Get-Command "curl.exe" -ErrorAction SilentlyContinue
+    if ($pathCurl) { return $pathCurl.Source }
+    
+    # Check our bin dir
+    $binCurl = Join-Path $BinDir "curl.exe"
+    if (Test-Path $binCurl) { return $binCurl }
+    
+    return $null
+}
+
+function Setup-Curl {
+    $curlPath = Get-CurlPath
+    if ($curlPath) {
         Write-Success "curl.exe found at $curlPath"
         return $true
     }
     
-    # Also check if curl.exe is in PATH
-    $curlInPath = Get-Command "curl.exe" -ErrorAction SilentlyContinue
-    if ($curlInPath) {
-        Write-Success "curl.exe found in PATH"
-        return $true
+    Write-Step "Downloading curl.exe..."
+    
+    if (!(Test-Path $BinDir)) {
+        New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
     }
     
-    Write-Warn "curl.exe not found. Installing..."
-    
-    # Try winget first
-    if (Check-Command "winget") {
-        Write-Step "Installing curl via winget..."
-        winget install -e --id curl.curl --silent --accept-source-agreements 2>&1 | Out-Null
-        
-        if ($LASTEXITCODE -eq 0) {
-            Write-Success "curl installed successfully"
-            return $true
-        }
-    }
-    
-    # Fallback: Download curl manually
-    Write-Warn "winget failed. Downloading curl manually..."
-    
-    $curlUrl = "https://curl.se/windows/dl-8.7.1_7/curl-8.7.1-win64-mingw.zip"
+    # Download curl from official source
+    $curlUrl = "https://curl.se/windows/latest.cgi?p=win64-mingw"
     $tempZip = Join-Path $env:TEMP "curl-win64.zip"
-    $curlExtractDir = Join-Path $env:TEMP "curl-extract"
+    $tempDir = Join-Path $env:TEMP "curl-extract"
     
     try {
-        # Use PowerShell's built-in download
+        # Use PowerShell's built-in download (only for curl itself)
         Invoke-WebRequest -Uri $curlUrl -UseBasicParsing -OutFile $tempZip
         
-        # Extract
-        if (!(Test-Path $curlExtractDir)) {
-            New-Item -ItemType Directory -Path $curlExtractDir -Force | Out-Null
+        if (!(Test-Path $tempDir)) {
+            New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
         }
-        Expand-Archive -Path $tempZip -DestinationPath $curlExtractDir -Force
+        Expand-Archive -Path $tempZip -DestinationPath $tempDir -Force
         
-        # Copy curl.exe to a known location
-        $curlBinDir = Join-Path $InstallDir "bin"
-        if (!(Test-Path $curlBinDir)) {
-            New-Item -ItemType Directory -Path $curlBinDir -Force | Out-Null
-        }
-        
-        $curlExe = Get-ChildItem -Path $curlExtractDir -Recurse -Filter "curl.exe" | Select-Object -First 1
+        # Find curl.exe in extracted files
+        $curlExe = Get-ChildItem -Path $tempDir -Recurse -Filter "curl.exe" | Select-Object -First 1
         if ($curlExe) {
-            Copy-Item $curlExe.FullName (Join-Path $curlBinDir "curl.exe") -Force
-            Add-ToPath $curlBinDir
-            Write-Success "curl installed to $curlBinDir"
+            Copy-Item $curlExe.FullName (Join-Path $BinDir "curl.exe") -Force
+            Add-ToPath $BinDir
+            Write-Success "curl.exe installed to $BinDir"
             return $true
         }
     } catch {
         Write-Err "Failed to download curl: $_"
     } finally {
-        # Cleanup
-        if (Test-Path $tempZip) { Remove-Item $tempZip -Force }
-        if (Test-Path $curlExtractDir) { Remove-Item $curlExtractDir -Recurse -Force }
+        if (Test-Path $tempZip) { Remove-Item $tempZip -Force -ErrorAction SilentlyContinue }
+        if (Test-Path $tempDir) { Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue }
     }
     
-    Write-Err "Could not install curl. Please install manually:"
-    Write-Host "  winget install curl.curl" -ForegroundColor Gray
     return $false
 }
 
@@ -113,76 +104,47 @@ function Download-File {
         [string]$OutputPath
     )
     
-    # Use curl.exe for downloads (native Windows binary)
-    $result = & curl.exe -sSL -o $OutputPath $Url 2>&1
-    
-    if ($LASTEXITCODE -eq 0) {
-        return $true
-    } else {
-        Write-Warn "curl failed (exit code: $LASTEXITCODE), falling back to Invoke-WebRequest..."
-        try {
-            Invoke-WebRequest -Uri $Url -UseBasicParsing -OutFile $OutputPath
+    $curlPath = Get-CurlPath
+    if ($curlPath) {
+        $result = & $curlPath -sSL --retry 3 --connect-timeout 10 -o $OutputPath $Url 2>&1
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $OutputPath)) {
             return $true
-        } catch {
-            Write-Err "Download failed: $_"
-            return $false
         }
+        Write-Warn "curl failed (exit code: $LASTEXITCODE), falling back..."
+    }
+    
+    # Fallback to PowerShell
+    try {
+        Invoke-WebRequest -Uri $Url -UseBasicParsing -OutFile $OutputPath
+        return $true
+    } catch {
+        Write-Err "Download failed: $_"
+        return $false
     }
 }
 
 function Get-RemoteContent {
     param([string]$Url)
     
-    # Use curl.exe to fetch content
-    $result = & curl.exe -sSL $Url 2>&1
-    
-    if ($LASTEXITCODE -eq 0) {
-        return $result
-    } else {
-        Write-Warn "curl failed, falling back to Invoke-WebRequest..."
-        try {
-            return (Invoke-WebRequest -Uri $Url -UseBasicParsing).Content
-        } catch {
-            Write-Err "Failed to fetch content: $_"
-            return $null
-        }
-    }
-}
-
-# ============================================================
-# WINGET INSTALLER
-# ============================================================
-
-function Install-WithWinget {
-    param(
-        [string]$Name,
-        [string]$WingetId
-    )
-    
-    if (Check-Command $Name) {
-        Write-Success "$Name already installed"
-        return $true
-    }
-    
-    Write-Step "Installing $Name via winget..."
-    
-    try {
-        $result = winget install -e --id $WingetId --silent --accept-source-agreements 2>&1
-        
+    $curlPath = Get-CurlPath
+    if ($curlPath) {
+        $result = & $curlPath -sSL $Url 2>&1
         if ($LASTEXITCODE -eq 0) {
-            Write-Success "$Name installed successfully"
-            # Refresh PATH
-            $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
-            return $true
-        } else {
-            Write-Warn "winget install failed for $Name (exit code: $LASTEXITCODE)"
-            return $false
+            return $result
         }
+    }
+    
+    # Fallback
+    try {
+        return (Invoke-WebRequest -Uri $Url -UseBasicParsing).Content
     } catch {
-        Write-Warn "winget error: $_"
-        return $false
+        return $null
     }
 }
+
+# ============================================================
+# PATH MANAGEMENT
+# ============================================================
 
 function Add-ToPath {
     param([string]$PathToAdd)
@@ -204,6 +166,173 @@ function Add-ToPath {
         Write-Err "Failed to add to PATH: $_"
         return $false
     }
+}
+
+# ============================================================
+# TOOL INSTALLERS (via curl direct download)
+# ============================================================
+
+function Install-Git {
+    if (Check-Command "git") {
+        Write-Success "git already installed"
+        return $true
+    }
+    
+    Write-Step "Installing git..."
+    
+    # Download Git for Windows installer
+    $gitUrl = "https://github.com/git-for-windows/git/releases/latest/download/Git-64-bit.exe"
+    $gitInstaller = Join-Path $env:TEMP "git-installer.exe"
+    
+    if (!(Download-File -Url $gitUrl -OutputPath $gitInstaller)) {
+        Write-Err "Failed to download Git installer"
+        return $false
+    }
+    
+    Write-Step "Running Git installer (silent)..."
+    $process = Start-Process -FilePath $gitInstaller -ArgumentList "/VERYSILENT", "/NORESTART", "/NOCANCEL", "/SP-" -Wait -PassThru -NoNewWindow
+    
+    if (Test-Path $gitInstaller) { Remove-Item $gitInstaller -Force }
+    
+    if ($process.ExitCode -eq 0) {
+        # Refresh PATH
+        $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
+        Write-Success "Git installed successfully"
+        return $true
+    } else {
+        Write-Err "Git installation failed (exit code: $($process.ExitCode))"
+        return $false
+    }
+}
+
+function Install-Fzf {
+    if (Check-Command "fzf") {
+        Write-Success "fzf already installed"
+        return $true
+    }
+    
+    Write-Step "Installing fzf..."
+    
+    if (!(Test-Path $BinDir)) {
+        New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
+    }
+    
+    # Download fzf binary
+    $fzfUrl = "https://github.com/junegunn/fzf/releases/latest/download/fzf-0.70.0-windows_amd64.zip"
+    $tempZip = Join-Path $env:TEMP "fzf.zip"
+    
+    if (!(Download-File -Url $fzfUrl -OutputPath $tempZip)) {
+        Write-Err "Failed to download fzf"
+        return $false
+    }
+    
+    # Extract
+    $tempDir = Join-Path $env:TEMP "fzf-extract"
+    if (!(Test-Path $tempDir)) { New-Item -ItemType Directory -Path $tempDir -Force | Out-Null }
+    Expand-Archive -Path $tempZip -DestinationPath $tempDir -Force
+    
+    # Copy fzf.exe to bin
+    $fzfExe = Get-ChildItem -Path $tempDir -Recurse -Filter "fzf.exe" | Select-Object -First 1
+    if ($fzfExe) {
+        Copy-Item $fzfExe.FullName (Join-Path $BinDir "fzf.exe") -Force
+        Add-ToPath $BinDir
+        Write-Success "fzf installed to $BinDir"
+    } else {
+        Write-Err "Could not find fzf.exe in archive"
+    }
+    
+    # Cleanup
+    if (Test-Path $tempZip) { Remove-Item $tempZip -Force }
+    if (Test-Path $tempDir) { Remove-Item $tempDir -Recurse -Force }
+    
+    return $true
+}
+
+function Install-Gh {
+    if (Check-Command "gh") {
+        Write-Success "gh CLI already installed"
+        return $true
+    }
+    
+    Write-Step "Installing gh CLI..."
+    
+    if (!(Test-Path $BinDir)) {
+        New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
+    }
+    
+    # Download gh binary
+    $ghUrl = "https://github.com/cli/cli/releases/latest/download/gh_2.70.0_windows_amd64.zip"
+    $tempZip = Join-Path $env:TEMP "gh.zip"
+    
+    if (!(Download-File -Url $ghUrl -OutputPath $tempZip)) {
+        Write-Err "Failed to download gh CLI"
+        return $false
+    }
+    
+    # Extract
+    $tempDir = Join-Path $env:TEMP "gh-extract"
+    if (!(Test-Path $tempDir)) { New-Item -ItemType Directory -Path $tempDir -Force | Out-Null }
+    Expand-Archive -Path $tempZip -DestinationPath $tempDir -Force
+    
+    # Copy gh.exe to bin
+    $ghBinDir = Get-ChildItem -Path $tempDir -Directory | Select-Object -First 1
+    if ($ghBinDir) {
+        $ghExe = Join-Path $ghBinDir.FullName "bin\gh.exe"
+        if (Test-Path $ghExe) {
+            Copy-Item $ghExe (Join-Path $BinDir "gh.exe") -Force
+            Add-ToPath $BinDir
+            Write-Success "gh CLI installed to $BinDir"
+        }
+    }
+    
+    # Cleanup
+    if (Test-Path $tempZip) { Remove-Item $tempZip -Force }
+    if (Test-Path $tempDir) { Remove-Item $tempDir -Recurse -Force }
+    
+    return $true
+}
+
+function Install-Lazygit {
+    if (Check-Command "lazygit") {
+        Write-Success "lazygit already installed"
+        return $true
+    }
+    
+    Write-Step "Installing lazygit..."
+    
+    if (!(Test-Path $BinDir)) {
+        New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
+    }
+    
+    # Download lazygit binary
+    $lazygitUrl = "https://github.com/jesseduffield/lazygit/releases/latest/download/lazygit_0.59.0_Windows_x86_64.zip"
+    $tempZip = Join-Path $env:TEMP "lazygit.zip"
+    
+    if (!(Download-File -Url $lazygitUrl -OutputPath $tempZip)) {
+        Write-Err "Failed to download lazygit"
+        return $false
+    }
+    
+    # Extract
+    $tempDir = Join-Path $env:TEMP "lazygit-extract"
+    if (!(Test-Path $tempDir)) { New-Item -ItemType Directory -Path $tempDir -Force | Out-Null }
+    Expand-Archive -Path $tempZip -DestinationPath $tempDir -Force
+    
+    # Copy lazygit.exe to bin
+    $lazygitExe = Get-ChildItem -Path $tempDir -Recurse -Filter "lazygit.exe" | Select-Object -First 1
+    if ($lazygitExe) {
+        Copy-Item $lazygitExe.FullName (Join-Path $BinDir "lazygit.exe") -Force
+        Add-ToPath $BinDir
+        Write-Success "lazygit installed to $BinDir"
+    } else {
+        Write-Err "Could not find lazygit.exe in archive"
+    }
+    
+    # Cleanup
+    if (Test-Path $tempZip) { Remove-Item $tempZip -Force }
+    if (Test-Path $tempDir) { Remove-Item $tempDir -Recurse -Force }
+    
+    return $true
 }
 
 function Download-Gity {
@@ -243,6 +372,7 @@ function Save-Version {
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  GITY - Windows Installer v1.0.0" -ForegroundColor White
+Write-Host "  (curl-based, no winget needed)" -ForegroundColor Gray
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -252,62 +382,17 @@ if (!(Setup-Curl)) {
     Write-Warn "curl setup failed, will use PowerShell fallback for downloads"
 }
 
-# Check winget
-Write-Step "Checking winget..."
-if (!(Check-Command "winget")) {
-    Write-Err "winget not found!"
-    Write-Host ""
-    Write-Host "Please install winget first:" -ForegroundColor Yellow
-    Write-Host "  1. Open Microsoft Store" -ForegroundColor Gray
-    Write-Host "  2. Search for 'App Installer'" -ForegroundColor Gray
-    Write-Host "  3. Install it" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "Or download from: https://aka.ms/getwinget" -ForegroundColor Gray
-    Write-Host ""
-    exit 1
-}
-Write-Success "winget found"
-
-# Install dependencies
+# Install dependencies via direct downloads
 Write-Host ""
-Write-Step "Checking dependencies..."
+Write-Step "Installing dependencies..."
 Write-Host ""
 
-$deps = @(
-    @{Name = "git"; WingetId = "Git.Git"},
-    @{Name = "fzf"; WingetId = "junegunn.fzf"},
-    @{Name = "gh"; WingetId = "GitHub.cli"},
-    @{Name = "lazygit"; WingetId = "JesseDuffield.lazygit"}
-)
-
-$failedDeps = @()
-
-foreach ($dep in $deps) {
-    if (!(Install-WithWinget -Name $dep.Name -WingetId $dep.WingetId)) {
-        $failedDeps += $dep
-    }
-}
+Install-Git
+Install-Fzf
+Install-Gh
+Install-Lazygit
 
 Write-Host ""
-
-if ($failedDeps.Count -gt 0) {
-    Write-Host ""
-    Write-Warn "Some dependencies failed to install:"
-    foreach ($dep in $failedDeps) {
-        Write-Host "    - $($dep.Name)" -ForegroundColor Red
-    }
-    Write-Host ""
-    Write-Host "Try these steps:" -ForegroundColor Yellow
-    Write-Host "  1. Run PowerShell as Administrator" -ForegroundColor Gray
-    Write-Host "  2. Run: winget source reset --force" -ForegroundColor Gray
-    Write-Host "  3. Run this installer again" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "Or install manually:" -ForegroundColor Yellow
-    foreach ($dep in $failedDeps) {
-        Write-Host "    winget install -e --id $($dep.WingetId)" -ForegroundColor Gray
-    }
-    Write-Host ""
-}
 
 # Download Gity
 if (!(Download-Gity)) {
@@ -316,6 +401,7 @@ if (!(Download-Gity)) {
 
 # Add to PATH
 Add-ToPath $InstallDir
+Add-ToPath $BinDir
 
 # Save version
 Save-Version
@@ -327,6 +413,7 @@ Write-Host "  INSTALLATION COMPLETE" -ForegroundColor White
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "Installed to: $InstallDir" -ForegroundColor White
+Write-Host "Binaries in: $BinDir" -ForegroundColor White
 Write-Host ""
 Write-Host "To run Gity:" -ForegroundColor Cyan
 Write-Host "  1. Open a NEW terminal" -ForegroundColor Gray
