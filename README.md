@@ -97,3 +97,4 @@ MIT License — see [LICENSE](LICENSE) for details.
 - [fzf](https://github.com/junegunn/fzf) by Junegunn Choi
 test change
 more changes
+testing sync feature
