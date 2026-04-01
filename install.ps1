@@ -6,20 +6,9 @@
 # Creates gity.cmd wrapper to bypass execution policy
 # Usage: irm https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/install.ps1 | iex
 
-# Enable script execution (required for Windows)
-try {
-    Write-Step "Setting execution policy to RemoteSigned..."
-    Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
-    Write-Success "Execution policy set to RemoteSigned"
-} catch {
-    Write-Warn "Could not set execution policy: $_"
-    Write-Warn "Scripts may need -ExecutionPolicy Bypass flag"
-}
-
-$InstallDir = Join-Path $env:LOCALAPPDATA "Programs\Gity"
-$BinDir = Join-Path $InstallDir "bin"
-$CacheDir = Join-Path $env:APPDATA "gity"
-$GityUrl = "https://raw.githubusercontent.com/ehtishamnaveed/Gity/master"
+# ============================================================
+# FUNCTION DEFINITIONS (must come before first use)
+# ============================================================
 
 function Write-Step {
     param([string]$Text)
@@ -319,6 +308,28 @@ function Save-Version {
     } catch {
         Write-Warn "Could not fetch version info"
     }
+}
+
+# ============================================================
+# VARIABLES
+# ============================================================
+
+$InstallDir = Join-Path $env:LOCALAPPDATA "Programs\Gity"
+$BinDir = Join-Path $InstallDir "bin"
+$CacheDir = Join-Path $env:APPDATA "gity"
+$GityUrl = "https://raw.githubusercontent.com/ehtishamnaveed/Gity/master"
+
+# ============================================================
+# EXECUTION POLICY SETUP (functions now defined above)
+# ============================================================
+
+try {
+    Write-Step "Setting execution policy to RemoteSigned..."
+    Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
+    Write-Success "Execution policy set to RemoteSigned"
+} catch {
+    Write-Warn "Could not set execution policy: $_"
+    Write-Warn "Scripts may need -ExecutionPolicy Bypass flag"
 }
 
 # ============================================================
