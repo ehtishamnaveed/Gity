@@ -58,7 +58,7 @@ def run_command(cmd, cwd=None, capture=True):
 
 def run_fzf(options, header="Select an option", multi=False, preview=None, height='60%'):
     """Run fzf with given options and return selection."""
-    cmd = ['fzf', '--header', header, '--height', height, '--border']
+    cmd = ['fzf', '--ansi', '--header', header, '--height', height, '--border']
     if multi:
         cmd.append('--multi')
     if preview:
