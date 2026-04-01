@@ -463,7 +463,20 @@ def main_menu():
         clear_screen()
         total_prs = sum(pr_counts.values())
         pr_notifier = f" {RED}● {total_prs} PRs{NC}" if total_prs > 0 else ""
-        print(f"{BLUE}╔{box_draw(60, '═')}╗{NC}\n║  {BOLD}{WHITE}GITY{NC} {DIM}- Universal Git Hub{NC} {CYAN}v{VERSION}{NC} {' '*(28-len(VERSION))}║\n{BLUE}╚{box_draw(60, '═')}╝{NC}")
+        
+        print(f"""{BLUE}
+   ▄██████▄   ▄█  ▀████████▀  ▄█    █▄ 
+  ███    ███ ███     ███     ███  ███  
+  ███    █▀  ███▌    ███      ██████   
+ ▄███        ███▌    ███        ██     
+▀▀███ ████▄  ███▌    ███        ██     
+  ███    ███ ███     ███        ██     
+  ███    ███ ███     ███        ██     
+  ████████▀  █▀      ▄█▀       ▄█▀     
+{NC}
+        {DIM}— Universal Git Hub v{VERSION} —{NC}
+        """)
+        
         print(f"  {BOLD}Indicators:{NC} {GREEN}●{NC} Clean {YELLOW}✎{NC} Changes {CYAN}↑{NC} Ahead {RED}↓{NC} Behind\n")
         options = ["📊 Dashboard", f"📥 Pull Requests{pr_notifier}", "📂 Browse Repos", "📅 Activity", "⚡ Bulk Actions", "🔍 Search", "🐙 GitHub Repos", "🔗 Clone", "✨ New Repo", "🔄 Refresh Cache", "❌ Exit"]
         choice = run_fzf(options, header="MAIN MENU", height='50%')
