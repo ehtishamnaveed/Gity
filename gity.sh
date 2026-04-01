@@ -467,7 +467,7 @@ github_repos() {
     if [ "$entity_type" = "user" ]; then
         repos=$(gh repo list "$entity_name" --limit 100 --json name,owner,url --jq '.[] | "\(.owner.login)/\(.name)|\(.url)"' 2>/dev/null)
     else
-        repos=$(gh api "orgs/$entity_name/repos?per_page=100" --jq '.[] | "\(.owner.login)/\(.name)|\(.url)"' 2>/dev/null)
+        repos=$(gh api "orgs/$entity_name/repos?per_page=100" --jq '.[] | "\(.owner.login)/\(.name)|\(.html_url)"' 2>/dev/null)
     fi
     
     if [ -z "$repos" ]; then
