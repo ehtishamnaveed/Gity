@@ -446,12 +446,27 @@ github_repos() {
         fi
     fi
     
-    local user login
-    user=$(gh api user --jq '.login' 2>/dev/null)
-    login="$user"
+    local user_file orgs_file
+    user_file=$(mktemp)
+    orgs_file=$(mktemp)
+    
+    gh api user --jq '.login' > "$user_file" 2>/dev/null &
+    gh api user/orgs --jq '.[].login' > "$orgs_file" 2>/dev/null &
+    wait
+    
+    local user
+    user=$(cat "$user_file")
+    rm -f "$user_file"
     
     local orgs
-    orgs=$(gh api user/orgs --jq '.[].login' 2>/dev/null)
+    orgs=$(cat "$orgs_file")
+    rm -f "$orgs_file"
+    
+    if [ -z "$user" ]; then
+        echo -e "${RED}Failed to fetch user info.${NC}"
+        sleep 2
+        return
+    fi
     
     local options="👤 Your Repositories ($user)"
     if [ -n "$orgs" ]; then
@@ -478,12 +493,19 @@ github_repos() {
         echo -e "${BLUE}Fetching $entity_name repositories...${NC}"
     fi
     
-    local repos
+    local repos_file
+    repos_file=$(mktemp)
+    
     if [ "$entity_type" = "user" ]; then
-        repos=$(gh repo list "$entity_name" --limit 100 --json name,owner,url --jq '.[] | "\(.owner.login)/\(.name)|\(.url)"' 2>/dev/null)
+        gh repo list "$entity_name" --limit 100 --json name,owner,url --jq '.[] | "\(.owner.login)/\(.name)|\(.url)"' > "$repos_file" 2>/dev/null &
     else
-        repos=$(gh api "orgs/$entity_name/repos?per_page=100" --jq '.[] | "\(.owner.login)/\(.name)|\(.html_url)"' 2>/dev/null)
+        gh api "orgs/$entity_name/repos?per_page=100" --jq '.[] | "\(.owner.login)/\(.name)|\(.html_url)"' > "$repos_file" 2>/dev/null &
     fi
+    wait
+    
+    local repos
+    repos=$(cat "$repos_file")
+    rm -f "$repos_file"
     
     if [ -z "$repos" ]; then
         echo -e "${YELLOW}No repositories found.${NC}"
