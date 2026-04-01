@@ -4,6 +4,16 @@
 # Fetches latest release URLs from GitHub API
 # Usage: irm https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/install.ps1 | iex
 
+# Enable script execution (required for Windows)
+try {
+    $currentPolicy = Get-ExecutionPolicy -Scope CurrentUser -ErrorAction SilentlyContinue
+    if ($currentPolicy -eq "Restricted" -or $currentPolicy -eq "AllSigned") {
+        Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force -ErrorAction SilentlyContinue
+    }
+} catch {
+    # If we can't change policy, continue anyway (might be running with -ExecutionPolicy Bypass)
+}
+
 $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\Gity"
 $BinDir = Join-Path $InstallDir "bin"
 $CacheDir = Join-Path $env:APPDATA "gity"
@@ -103,41 +113,41 @@ function Install-Git {
     
     Write-Step "Installing git..."
     
-    $gitDir = Join-Path $InstallDir "git"
-    if (!(Test-Path $gitDir)) {
-        New-Item -ItemType Directory -Path $gitDir -Force | Out-Null
-    }
-    
-    # Get latest Git portable URL from GitHub API
+    # Get latest Git for Windows installer URL from GitHub API
     $arch = if ([Environment]::Is64BitOperatingSystem) { "64" } else { "32" }
-    $gitUrl = Get-GitHubReleaseAsset -Repo "git-for-windows/git" -Pattern "PortableGit-${arch}-bit.*\.7z\.exe"
+    $gitUrl = Get-GitHubReleaseAsset -Repo "git-for-windows/git" -Pattern "Git-${arch}-bit.*\.exe"
     
     if (!$gitUrl) {
-        Write-Warn "Could not find Git portable release. Please install manually from: https://git-scm.com/download/win"
-        return $false
+        # Fallback to direct URL
+        $gitUrl = "https://github.com/git-for-windows/git/releases/latest/download/Git-${arch}-bit.exe"
     }
     
-    Write-Step "Downloading Git portable..."
-    $tempGit = Join-Path $env:TEMP "git-portable.exe"
+    Write-Step "Downloading Git installer..."
+    $tempGit = Join-Path $env:TEMP "git-installer.exe"
     
     if (!(Download-File -Url $gitUrl -OutputPath $tempGit)) {
         Write-Warn "Could not download Git. Please install manually from: https://git-scm.com/download/win"
         return $false
     }
     
-    Write-Step "Extracting Git..."
+    Write-Step "Running Git installer (silent)..."
     
     try {
-        Expand-Archive -Path $tempGit -DestinationPath $gitDir -Force
-        $gitBin = Join-Path $gitDir "bin"
-        if (Test-Path $gitBin) {
-            Add-ToPath $gitBin
-            $env:PATH = "$env:PATH;$gitBin"
+        # Run installer silently with default options
+        $process = Start-Process -FilePath $tempGit -ArgumentList "/VERYSILENT", "/NORESTART", "/NOCANCEL", "/SP-", "/COMPONENTS=icons,ext\regshell,ext\regshellfolder,ext\gitlfs,assoc,assoc_sh" -Wait -PassThru -NoNewWindow
+        
+        if ($process.ExitCode -eq 0) {
+            # Refresh PATH
+            $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
+            Write-Success "Git installed successfully"
+            return $true
+        } else {
+            Write-Err "Git installation failed (exit code: $($process.ExitCode))"
+            Write-Warn "Please install Git manually from: https://git-scm.com/download/win"
+            return $false
         }
-        Write-Success "Git installed successfully"
-        return $true
     } catch {
-        Write-Err "Failed to extract Git: $_"
+        Write-Err "Failed to run Git installer: $_"
         Write-Warn "Please install Git manually from: https://git-scm.com/download/win"
         return $false
     } finally {
