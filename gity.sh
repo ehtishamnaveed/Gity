@@ -299,13 +299,11 @@ bulk_actions() {
     temp_input=$(mktemp)
     while IFS= read -r repo; do
         if [ -d "$repo/.git" ]; then
-            local status
-            status=$(get_repo_status_simple "$repo")
             local name
             name=$(basename "$repo")
             local rel_path
             rel_path="${repo#$HOME/}"
-            echo "${status} ${name}  ~/${rel_path}"
+            echo "${name}  ~/${rel_path}"
         fi
     done <<< "$all_repos" > "$temp_input"
     
@@ -320,7 +318,7 @@ bulk_actions() {
     local repos
     while IFS= read -r line; do
         local name
-        name=$(echo "$line" | awk '{print $2}')
+        name=$(echo "$line" | awk '{print $1}')
         if [ -n "$name" ]; then
             local repo_path
             repo_path=$(grep -F "/${name}" "$CACHE_FILE" | head -1)
