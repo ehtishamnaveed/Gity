@@ -40,7 +40,7 @@ No more hunting for repos across your filesystem. Gity automatically discovers a
 ### One-Line Install (All Platforms)
 
 ```bash
-bash <(curl -sL https://github.com/ehtishamnaveed/gity/install.sh)
+bash <(curl -sL https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/install.sh)
 ```
 
 That's it. One command. Works on Linux, macOS, and Windows (WSL / Git Bash).
@@ -64,11 +64,11 @@ After that, run the one-liner above and Gity will install everything.
 
 ```bash
 # Linux / macOS
-curl -sL https://github.com/ehtishamnaveed/gity/gity.sh -o ~/.local/bin/gity
+curl -sL https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/gity.sh -o ~/.local/bin/gity
 chmod +x ~/.local/bin/gity
 
 # Windows (WSL / Git Bash)
-curl -sL https://github.com/ehtishamnaveed/gity/gity.sh -o ~/gity
+curl -sL https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/gity.sh -o ~/gity
 chmod +x ~/gity
 ```
 
