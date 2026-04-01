@@ -12,9 +12,9 @@ No more hunting for repos across your filesystem. Gity automatically discovers a
 
 | Platform | Command |
 |----------|---------|
-| **Linux** | `curl -sSL https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/install.sh \| bash` |
-| **macOS** | `curl -sSL https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/install.sh \| bash` |
-| **Windows** | `irm https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/install.ps1 \| iex` |
+| **Linux** | `curl -sSL https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/install.sh | bash` |
+| **macOS** | `curl -sSL https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/install.sh | bash` |
+| **Windows** | `irm https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/install.ps1 | iex` |
 
 That's it. One command per platform. Everything installs automatically.
 
@@ -101,6 +101,10 @@ gity
 # Linux / macOS
 curl -sL https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/gity.sh -o ~/.local/bin/gity
 chmod +x ~/.local/bin/gity
+
+# Windows (WSL / Git Bash)
+curl -sL https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/gity.sh -o ~/gity
+chmod +x ~/gity
 ```
 
 ```powershell

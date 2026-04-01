@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -62,6 +62,7 @@ RECENT_FILE="$HOME/.cache/lazygit_recent"
 mkdir -p "$REPO_DIR" "$(dirname "$CACHE_FILE")"
 touch "$RECENT_FILE"
 
+<<<<<<< Updated upstream
 refresh_cache() {
     echo -e "${BLUE}Scanning for Git repositories in $HOME...${NC}"
     
@@ -88,6 +89,22 @@ if [ ! -s "$CACHE_FILE" ]; then
     echo -e "${BLUE}First run - scanning for repositories...${NC}"
     refresh_cache
 fi
+=======
+# ============================================================
+# COMPATIBILITY CHECKS
+# ============================================================
+
+check_bash_version() {
+    if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+        # Some features like associative arrays (declare -A) require Bash 4+
+        # We will handle fallbacks where possible or warn the user.
+        BASH_OLD=1
+    else
+        BASH_OLD=0
+    fi
+}
+check_bash_version
+>>>>>>> Stashed changes
 
 CLIPBOARD_TOOL=""
 copy_path() {
@@ -172,7 +189,11 @@ check_deps() {
         echo -e "${BLUE}  • macOS:      brew install$missing${NC}"
         echo ""
         echo -e "${YELLOW}  Or use the installer:${NC}"
+<<<<<<< Updated upstream
         echo -e "${GREEN}  curl -sSL https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/install.sh | bash${NC}"
+=======
+        echo -e "${GREEN}  bash <(curl -sL https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/install.sh)${NC}"
+>>>>>>> Stashed changes
         echo ""
         exit 1
     fi
@@ -951,51 +972,48 @@ show_work_summary() {
     
     echo -e "${BLUE}Calculating work summary...${NC}"
     
-    local temp_file=$(mktemp)
+    local temp_stats=$(mktemp)
     local total_commits=0
     local total_lines_added=0
     local total_lines_deleted=0
     local repos_touched=0
-    declare -A commit_counts
-    declare -A file_counts
-    
+
     while IFS= read -r repo; do
         if [ -d "$repo/.git" ]; then
             local name
             name=$(basename "$repo")
-            
+
             local commits
             commits=$(git -C "$repo" log --since="$hours hours ago" --format="|%H" 2>/dev/null || true)
-            
+
             local repo_commits=0
+            local repo_files=0
             while IFS='|' read -r hash; do
                 [ -z "$hash" ] && continue
                 ((repo_commits++))
-                
+
                 local diff_stats
                 diff_stats=$(git -C "$repo" show "$hash" --stat --format="" 2>/dev/null | tail -1)
                 local added
                 added=$(echo "$diff_stats" | grep -o '[0-9]\+ insertion' | grep -o '[0-9]\+' || echo "0")
                 local deleted
                 deleted=$(echo "$diff_stats" | grep -o '[0-9]\+ deletion' | grep -o '[0-9]\+' || echo "0")
-                
+                local files
+                files=$(echo "$diff_stats" | grep -o '[0-9]\+ file' | grep -o '[0-9]\+' || echo "0")
+
                 total_lines_added=$((total_lines_added + added))
                 total_lines_deleted=$((total_lines_deleted + deleted))
-                
-                local files_changed
-                files_changed=$(echo "$diff_stats" | grep -o '[0-9]\+ file' | grep -o '[0-9]\+' || echo "0")
-                file_counts["$name"]=$((${file_counts["$name"]:-0} + files_changed))
+                repo_files=$((repo_files + files))
             done <<< "$commits"
-            
+
             if [ "$repo_commits" -gt 0 ]; then
-                commit_counts["$name"]=$repo_commits
+                echo "$name|$repo_commits|$repo_files" >> "$temp_stats"
                 total_commits=$((total_commits + repo_commits))
                 repos_touched=$((repos_touched + 1))
-                echo "$name|$repo_commits|${file_counts["$name"]:-0}" >> "$temp_file"
             fi
         fi
     done <<< "$all_repos"
-    
+
     clear
     local width=60
     echo -e "${BLUE}╔$(box_draw $width '═')╗${NC}"
@@ -1005,11 +1023,11 @@ show_work_summary() {
     echo -e "${BLUE}║${NC}$(box_draw $width ' ')"
     echo -e "${BLUE}║${NC}   ${BOLD}$repos_touched repos touched${NC}  •  ${BOLD}$total_commits commits${NC}  •  ${GREEN}+$total_lines_added${NC} / ${RED}-$total_lines_deleted lines"
     echo -e "${BLUE}║${NC}$(box_draw $width ' ')"
-    
+
     if [ "$repos_touched" -gt 0 ]; then
         echo -e "${BLUE}║${NC}  ${BOLD}Most Active Repos:${NC}$(printf "%*s" $((width - 24)) "")"
         echo -e "${BLUE}║${NC}$(box_draw $width ' ')"
-        
+
         while IFS='|' read -r name commits files; do
             local bar_width=20
             local max_commits=10
@@ -1020,13 +1038,12 @@ show_work_summary() {
             [ "$remaining" -lt 0 ] && remaining=0
             bar="$bar$(printf "%${remaining}s" "" | tr ' ' '░')"
             echo -e "${BLUE}║${NC}    ${CYAN}$name${NC}  ${GREEN}$bar${NC}  $commits commits"
-        done < <(sort -t'|' -k2 -rn "$temp_file")
+        done < <(sort -t'|' -k2 -rn "$temp_stats")
     else
         echo -e "${BLUE}║${NC}$(printf "%*s" $(((width + 15) / 2)) "")${YELLOW}No commits yet${NC}"
     fi
-    
-    rm -f "$temp_file"
-    
+
+    rm -f "$temp_stats"
     echo -e "${BLUE}║${NC}$(box_draw $width ' ')"
     echo -e "${BLUE}╚$(box_draw $width '═')╝${NC}"
     echo ""
