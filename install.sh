@@ -263,13 +263,21 @@ fi
 echo ""
 echo -e "${BLUE}[*] Installing gity...${NC}"
 if is_windows_shell; then
-    cp "$SCRIPT_DIR/gity.sh" "$INSTALL_TARGET"
+    if [ -f "$SCRIPT_DIR/gity.sh" ]; then
+        cp "$SCRIPT_DIR/gity.sh" "$INSTALL_TARGET"
+    else
+        curl -sL https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/gity.sh -o "$INSTALL_TARGET"
+    fi
     chmod +x "$INSTALL_TARGET"
     echo -e "${GREEN}  ✓ Installed to $INSTALL_TARGET${NC}"
     echo -e "${YELLOW}  NOTE: Add '$HOME' to your PATH if 'gity' is not found.${NC}"
 else
     mkdir -p "$HOME/.local/bin"
-    cp "$SCRIPT_DIR/gity.sh" "$INSTALL_TARGET"
+    if [ -f "$SCRIPT_DIR/gity.sh" ]; then
+        cp "$SCRIPT_DIR/gity.sh" "$INSTALL_TARGET"
+    else
+        curl -sL https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/gity.sh -o "$INSTALL_TARGET"
+    fi
     chmod +x "$INSTALL_TARGET"
     echo -e "${GREEN}  ✓ Installed to $INSTALL_TARGET${NC}"
 fi

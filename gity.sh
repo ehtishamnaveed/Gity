@@ -484,8 +484,18 @@ github_repos() {
                 echo -e "${YELLOW}Repository already exists at: $dest${NC}"
                 repo_actions "$dest"
             else
+                local clone_mode
+                clone_mode=$(echo -e "Fetch Default Branch Only\nFetch All Branches" | fzf --height 15% --border --prompt="Clone mode > " || true)
+                
                 echo -e "${BLUE}Cloning to: $dest${NC}"
-                git clone "$url" "$dest" && repo_actions "$dest"
+                case "$clone_mode" in
+                    "Fetch All Branches")
+                        git clone --no-single-branch "$url" "$dest" && repo_actions "$dest"
+                        ;;
+                    *)
+                        git clone "$url" "$dest" && repo_actions "$dest"
+                        ;;
+                esac
             fi
             ;;
         "🌐 Open in Browser")
@@ -923,8 +933,18 @@ clone_repo() {
         repo_name=$(basename "$url" .git)
         dest="$REPO_DIR/$repo_name"
         if [ ! -d "$dest" ]; then
+            local clone_mode
+            clone_mode=$(echo -e "Fetch Default Branch Only\nFetch All Branches" | fzf --height 15% --border --prompt="Clone mode > " || true)
+            
             echo -e "${BLUE}Cloning into $dest...${NC}"
-            git clone "$url" "$dest" && repo_actions "$dest"
+            case "$clone_mode" in
+                "Fetch All Branches")
+                    git clone --no-single-branch "$url" "$dest" && repo_actions "$dest"
+                    ;;
+                *)
+                    git clone "$url" "$dest" && repo_actions "$dest"
+                    ;;
+            esac
         else
             echo "Error: Directory already exists at $dest"
             sleep 2
@@ -1024,7 +1044,7 @@ merge_branch() {
     fi
     
     local all_branches
-    all_branches=$(git -C "$selected_repo" branch --format='%(refname:short)')
+    all_branches=$(git -C "$selected_repo" branch -a --format='%(refname:short)' | grep -v 'origin/HEAD')
     
     if [ -z "$all_branches" ]; then
         echo -e "${RED}No branches found in this repository!${NC}"
