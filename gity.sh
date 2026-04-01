@@ -417,7 +417,7 @@ github_repos() {
     if ! command -v gh &>/dev/null; then
         echo -e "${YELLOW}GitHub CLI (gh) is not installed.${NC}"
         echo ""
-        echo -e "${BLUE}To install, run:${NC}"
+        echo -e "${BLUE}To install:${NC}"
         echo -e "${GREEN}  Arch:       sudo pacman -S github-cli${NC}"
         echo -e "${GREEN}  Ubuntu:     sudo apt install gh${NC}"
         echo -e "${GREEN}  macOS:      brew install gh${NC}"
@@ -440,13 +440,47 @@ github_repos() {
         return
     fi
     
-    echo -e "${BLUE}Fetching your GitHub repositories...${NC}"
+    local user login
+    user=$(gh api user --jq '.login' 2>/dev/null)
+    login="$user"
+    
+    local orgs
+    orgs=$(gh api user/orgs --jq '.[].login' 2>/dev/null)
+    
+    local options="👤 Your Repositories ($user)"
+    if [ -n "$orgs" ]; then
+        while IFS= read -r org; do
+            [ -n "$org" ] && options="$options\n🏢 $org"
+        done <<< "$orgs"
+    fi
+    
+    local selected_entity
+    selected_entity=$(echo -e "$options" | fzf --height 40% --border --header="Select Organization or User" --prompt="Select > " || true)
+    
+    if [ -z "$selected_entity" ]; then
+        return
+    fi
+    
+    local entity_type entity_name
+    if [[ "$selected_entity" == "👤"* ]]; then
+        entity_type="user"
+        entity_name="$user"
+        echo -e "${BLUE}Fetching your repositories...${NC}"
+    else
+        entity_type="org"
+        entity_name=$(echo "$selected_entity" | sed 's/🏢 //')
+        echo -e "${BLUE}Fetching $entity_name repositories...${NC}"
+    fi
     
     local repos
-    repos=$(gh repo list --limit 100 --json name,owner,url --jq '.[] | "\(.owner.login)/\(.name)|\(.url)"' 2>/dev/null)
+    if [ "$entity_type" = "user" ]; then
+        repos=$(gh repo list "$entity_name" --limit 100 --json name,owner,url --jq '.[] | "\(.owner.login)/\(.name)|\(.url)"' 2>/dev/null)
+    else
+        repos=$(gh api orgs/$entity_name/repos --jq '.[] | "\(.owner.login)/\(.name)|\(.url)"' 2>/dev/null)
+    fi
     
     if [ -z "$repos" ]; then
-        echo -e "${YELLOW}No repositories found or error fetching.${NC}"
+        echo -e "${YELLOW}No repositories found.${NC}"
         sleep 2
         return
     fi
@@ -458,7 +492,7 @@ github_repos() {
     done <<< "$repos"
     
     local selected
-    selected=$(cat "$temp_file" | fzf --height 70% --border --header="Your GitHub Repositories" --prompt="Select repo > " || true)
+    selected=$(cat "$temp_file" | fzf --height 70% --border --header="Repositories in $entity_name" --prompt="Select repo > " || true)
     rm -f "$temp_file"
     
     if [ -z "$selected" ]; then
@@ -499,6 +533,13 @@ github_repos() {
             fi
             ;;
         "🌐 Open in Browser")
+            if command -v xdg-open &>/dev/null; then
+                xdg-open "$url"
+            elif command -v open &>/dev/null; then
+                open "$url"
+            fi
+            ;;
+        "📂 View on GitHub")
             if command -v xdg-open &>/dev/null; then
                 xdg-open "$url"
             elif command -v open &>/dev/null; then
