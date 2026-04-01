@@ -47,13 +47,17 @@ function Install-WithWinget {
     
     Write-Step "Installing $Name..."
     
+    # Reset winget source to fix "mstore" errors
+    Start-Process -FilePath "winget" -ArgumentList "source", "reset", "--force", "--name", "winget" -Wait -NoNewWindow -WindowStyle Hidden 2>$null
+    
     $process = Start-Process -FilePath "winget" -ArgumentList "install", "-e", "--id", $WingetId, "--silent", "--accept-source-agreements" -Wait -PassThru -NoNewWindow
     
     if ($process.ExitCode -eq 0) {
         Write-Success "$Name installed successfully"
         return $true
     } else {
-        Write-Err "Failed to install $Name (exit code: $($process.ExitCode))"
+        Write-Warn "Failed to install $Name via winget (exit code: $($process.ExitCode))"
+        Write-Warn "You may need to install $Name manually"
         return $false
     }
 }
@@ -147,8 +151,16 @@ foreach ($dep in $deps) {
 Write-Host ""
 
 if (!$allOk) {
-    Write-Warn "Some dependencies failed to install. You may need to run as Administrator."
-    Write-Warn "Continuing with installation anyway..."
+    Write-Host ""
+    Write-Warn "Some dependencies failed to install."
+    Write-Warn "Try running PowerShell as Administrator and run the installer again."
+    Write-Warn "Or install manually:"
+    Write-Host "    winget install Git.Git" -ForegroundColor Gray
+    Write-Host "    winget install junegunn.fzf" -ForegroundColor Gray
+    Write-Host "    winget install JesseDuffield.lazygit" -ForegroundColor Gray
+    Write-Host "    winget install GitHub.cli" -ForegroundColor Gray
+    Write-Host ""
+    Write-Warn "Continuing with Gity installation anyway..."
     Write-Host ""
 }
 
