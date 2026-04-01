@@ -336,6 +336,7 @@ def repo_actions(repo_path):
 def open_existing():
     if not CACHE_FILE.exists(): refresh_cache()
     
+    print(f"{BLUE}Searching repositories...{NC}")
     try:
         with open(RECENT_FILE, "r") as f: recent = f.read().splitlines()
     except FileNotFoundError: recent = []
@@ -427,12 +428,16 @@ def bulk_actions():
 
 def github_repos():
     if not shutil.which("gh"): print("gh CLI missing"); return
+    
+    print(f"{BLUE}Searching organizations or your repos...{NC}")
     user = run_command(["gh", "api", "user", "--jq", ".login"])
     orgs = run_command(["gh", "api", "user/orgs", "--jq", ".[].login"]).splitlines()
     options = [f"👤 {user}"] + [f"🏢 {o}" for o in orgs]
     ent = run_fzf(options, header="Select User/Org", height='40%')
     if not ent: return
+    
     name = ent.split(" ")[1]
+    print(f"{BLUE}Fetching repositories for {name}...{NC}")
     repos_json = run_command(["gh", "repo", "list", name, "--limit", "50", "--json", "name,owner,url"])
     repos_data = json.loads(repos_json)
     selected = run_fzf([f"{r['owner']['login']}/{r['name']}" for r in repos_data], header=f"Repos in {name}")
