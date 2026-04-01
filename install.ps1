@@ -1,7 +1,9 @@
 # Gity Windows Installer
 # One-command setup for Windows users
-# Uses PowerShell native commands - no curl, no winget
-# Fetches latest release URLs from GitHub API
+# Uses PowerShell native commands for downloads
+# Uses winget only for Git installation
+# Fetches latest release URLs from GitHub API for other tools
+# Creates gity.cmd wrapper to bypass execution policy
 # Usage: irm https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/install.ps1 | iex
 
 # Enable script execution (required for Windows)
@@ -344,6 +346,12 @@ if (!(Download-Gity)) {
     exit 1
 }
 
+# Create gity.cmd wrapper (bypasses execution policy)
+$cmdFile = Join-Path $InstallDir "gity.cmd"
+$cmdContent = "@echo off`npowershell -ExecutionPolicy Bypass -NoProfile -File `"%~dp0gity.ps1`" %*`n"
+Set-Content -Path $cmdFile -Value $cmdContent -Force -Encoding ASCII
+Write-Success "Created gity.cmd wrapper"
+
 Add-ToPath $InstallDir
 Add-ToPath $BinDir
 Save-Version
@@ -360,5 +368,7 @@ Write-Host "  1. Open a NEW terminal" -ForegroundColor Gray
 Write-Host "  2. Type: gity" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "Or run directly:" -ForegroundColor Cyan
-Write-Host "  pwsh -File `"$InstallDir\gity.ps1`"" -ForegroundColor Yellow
+Write-Host "  gity" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "Note: A gity.cmd wrapper was created to bypass execution policy." -ForegroundColor Gray
 Write-Host ""
