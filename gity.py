@@ -829,19 +829,10 @@ def github_repos():
     repos_json = run_command(["gh", "repo", "list", name, "--limit", "100", "--json", "name,owner,url,description,stargazerCount,forkCount,isPrivate,primaryLanguage,updatedAt"])
     repos_data = json.loads(repos_json)
 
-    display = []
-    for r in repos_data:
-        lang = r.get('primaryLanguage', {}).get('name', '?') if r.get('primaryLanguage') else '?'
-        stars = r.get('stargazerCount', 0)
-        desc = r.get('description', '') or ''
-        display.append(f"★ {stars}  {CYAN}{lang}{NC}  {r['owner']['login']}/{r['name']}  {DIM}{desc[:50]}{NC}")
-
-    selected_idx = run_fzf(display, header=f"Repos in {name}", height='70%')
-    if selected_idx:
-        for i, d in enumerate(display):
-            if d.strip() == selected_idx.strip() or d == selected_idx:
-                github_repo_actions(repos_data[i])
-                break
+    selected = run_fzf([f"{r['owner']['login']}/{r['name']}" for r in repos_data], header=f"Repos in {name}")
+    if selected:
+        repo = next(r for r in repos_data if f"{r['owner']['login']}/{r['name']}" == selected)
+        github_repo_actions(repo)
 
 def clone_repo():
     url = input("URL: ").strip()
