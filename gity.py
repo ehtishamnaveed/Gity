@@ -900,9 +900,89 @@ def check_gh_auth():
         time.sleep(2)
         return False
 
+UPDATE_URL = "https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/gity.py"
+INSTALLER_URL = "https://raw.githubusercontent.com/ehtishamnaveed/Gity/master/install.py"
+
+def get_install_dir():
+    if platform.system() == "Windows":
+        return Path(os.environ.get("LOCALAPPDATA", HOME / "AppData" / "Local")) / "Gity"
+    return HOME / ".local" / "share" / "gity"
+
+def get_bin_dir():
+    if platform.system() == "Windows":
+        return get_install_dir()
+    return HOME / ".local" / "bin"
+
+def check_for_update():
+    """Check if a newer version of gity.py is available."""
+    try:
+        import urllib.request
+        remote = urllib.request.urlopen(INSTALLER_URL, timeout=5).read().decode()
+        for line in remote.splitlines():
+            if line.startswith("VERSION = "):
+                remote_version = line.split('"')[1]
+                if remote_version != VERSION:
+                    return True, remote_version
+                return False, VERSION
+    except Exception:
+        pass
+    return False, VERSION
+
+def update_gity():
+    """Download and apply the latest gity.py and launcher."""
+    clear_screen()
+    print(f"{BLUE}Checking for updates...{NC}")
+
+    has_update, remote_ver = check_for_update()
+    if not has_update:
+        print(f"\n{GREEN}✓ Gity is already up to date (v{VERSION}){NC}")
+        time.sleep(2)
+        return
+
+    print(f"\n{YELLOW}New version available: v{remote_ver} (current: v{VERSION}){NC}")
+    confirm = input(f"\nUpdate now? (y/N): ").strip().lower()
+    if confirm != 'y':
+        return
+
+    install_dir = get_install_dir()
+    bin_dir = get_bin_dir()
+
+    try:
+        import urllib.request
+
+        print(f"\n{BLUE}Downloading latest gity.py...{NC}")
+        urllib.request.urlretrieve(UPDATE_URL, install_dir / "gity.py")
+
+        print(f"{BLUE}Downloading latest installer...{NC}")
+        installer_content = urllib.request.urlopen(INSTALLER_URL).read().decode()
+
+        if platform.system() == "Windows":
+            python_exe = sys.executable
+            gity_path = install_dir / "gity.py"
+            launcher = bin_dir / "gity.cmd"
+            content = f'@echo off\r\n"{python_exe}" "{gity_path}" %*\r\n'
+            with open(launcher, "w", newline="") as f:
+                f.write(content)
+        else:
+            launcher = bin_dir / "gity"
+            with open(launcher, "w") as f:
+                f.write(f'#!/usr/bin/env bash\nexec python3 "{install_dir / "gity.py"}" "$@"\n')
+            launcher.chmod(0o755)
+
+        print(f"\n{GREEN}✓ Updated to v{remote_ver}!{NC}")
+        print(f"{YELLOW}Restart Gity to apply changes.{NC}")
+        time.sleep(3)
+        sys.exit(0)
+    except Exception as e:
+        print(f"\n{RED}✗ Update failed: {e}{NC}")
+        time.sleep(3)
+
 def main_menu():
     check_gh_auth()
     start_pr_fetch()
+
+    has_update, remote_ver = check_for_update()
+
     while True:
         clear_screen()
         print(f"""{BLUE}
@@ -915,9 +995,18 @@ def main_menu():
 {NC}
         {DIM}— Universal Git Hub v{VERSION} —{NC}
         """)
-        
+
+        if has_update:
+            print(f"  {YELLOW}⚠ Update available: v{remote_ver}{NC}\n")
+        else:
+            print()
+
         print(f"  {BOLD}Indicators:{NC} {GREEN}●{NC} Clean {YELLOW}✎{NC} Changes {CYAN}↑{NC} Ahead {RED}↓{NC} Behind\n")
-        options = ["📊 Dashboard", "📥 Pull Requests", "📂 Browse Repos", "📅 Activity", "⚡ Bulk Actions", "🔍 Search", "🐙 GitHub Repos", "🔗 Clone", "✨ New Repo", "☠️ DELETE GitHub REPO", "🔄 Refresh Cache", "❌ Exit"]
+        options = ["📊 Dashboard", "📥 Pull Requests", "📂 Browse Repos", "📅 Activity", "⚡ Bulk Actions", "🔍 Search", "🐙 GitHub Repos", "🔗 Clone", "✨ New Repo", "☠️ DELETE GitHub REPO", "🔄 Refresh Cache"]
+        if has_update:
+            options.append(f"🔼 Update to v{remote_ver}")
+        options.append("❌ Exit")
+
         choice = run_fzf(options, header="MAIN MENU", height='50%', reverse=True)
         if not choice or "❌" in choice: sys.exit(0)
         elif "Dashboard" in choice: show_dashboard()
@@ -931,6 +1020,7 @@ def main_menu():
         elif "New Repo" in choice: create_new_repo()
         elif "DELETE GitHub" in choice: delete_github_repo()
         elif "Refresh" in choice: refresh_cache()
+        elif "Update" in choice: update_gity(); return
 
 if __name__ == "__main__":
     if not shutil.which("fzf") or not shutil.which("git"):
