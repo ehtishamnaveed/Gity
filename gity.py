@@ -699,25 +699,14 @@ def delete_github_repo():
     time.sleep(3)
 
 def github_repo_actions(repo_data):
-    """Rich actions menu for a GitHub remote repo."""
     full_name = f"{repo_data['owner']['login']}/{repo_data['name']}"
-    url = repo_data.get('url', '')
     clone_url = f"https://github.com/{full_name}.git"
 
     while True:
         clear_screen()
-
-        desc = repo_data.get('description', '') or 'No description'
-        lang = repo_data.get('primaryLanguage', {}).get('name', 'Unknown') if repo_data.get('primaryLanguage') else 'Unknown'
-        stars = repo_data.get('stargazerCount', 0)
-        forks = repo_data.get('forkCount', 0)
-        is_private = repo_data.get('isPrivate', False)
-        updated = repo_data.get('updatedAt', '')[:10] if repo_data.get('updatedAt') else ''
-
         print(f"{BLUE}{'=' * 60}{NC}")
         print(f"  {BOLD}{full_name}{NC}")
-        print(f"  {DIM}{desc}{NC}")
-        print(f"  {CYAN}{lang}{NC}  {MAGENTA}★ {stars}{NC}  {CYAN}⑂ {forks}{NC}  {'🔒 Private' if is_private else '🌐 Public'}  Updated: {updated}")
+        print(f"  {DIM}{repo_data.get('url', '')}{NC}")
         print(f"{BLUE}{'=' * 60}{NC}\n")
 
         actions = [
