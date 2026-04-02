@@ -698,25 +698,150 @@ def delete_github_repo():
         print(f"{YELLOW}Run: gh auth refresh -h github.com -s delete_repo{NC}")
     time.sleep(3)
 
+def github_repo_actions(repo_data):
+    """Rich actions menu for a GitHub remote repo."""
+    full_name = f"{repo_data['owner']['login']}/{repo_data['name']}"
+    url = repo_data.get('url', '')
+    clone_url = f"https://github.com/{full_name}.git"
+
+    while True:
+        clear_screen()
+
+        desc = repo_data.get('description', '') or 'No description'
+        lang = repo_data.get('primaryLanguage', {}).get('name', 'Unknown') if repo_data.get('primaryLanguage') else 'Unknown'
+        stars = repo_data.get('stargazerCount', 0)
+        forks = repo_data.get('forkCount', 0)
+        is_private = repo_data.get('isPrivate', False)
+        updated = repo_data.get('updatedAt', '')[:10] if repo_data.get('updatedAt') else ''
+
+        print(f"{BLUE}{'=' * 60}{NC}")
+        print(f"  {BOLD}{full_name}{NC}")
+        print(f"  {DIM}{desc}{NC}")
+        print(f"  {CYAN}{lang}{NC}  {MAGENTA}★ {stars}{NC}  {CYAN}⑂ {forks}{NC}  {'🔒 Private' if is_private else '🌐 Public'}  Updated: {updated}")
+        print(f"{BLUE}{'=' * 60}{NC}\n")
+
+        actions = [
+            "📥 Clone Repository",
+            "🌐 Open in Browser",
+            "📄 View README",
+            "📋 View File Tree",
+            "🔀 View Branches",
+            "📦 View Releases",
+            "📊 View Recent Commits",
+            "🔙 Back",
+        ]
+
+        choice = run_fzf(actions, header=f"Actions for {full_name}", height='30%')
+
+        if not choice or "Back" in choice:
+            break
+        elif "Clone" in choice:
+            name = repo_data['name']
+            dest = REPO_DIR / name
+            print(f"{BLUE}Cloning to {dest}...{NC}")
+            res = subprocess.run(["git", "clone", clone_url, str(dest)])
+            if res.returncode == 0:
+                print(f"{GREEN}✓ Cloned to {dest}{NC}")
+            time.sleep(2)
+        elif "Browser" in choice:
+            browse_url = f"https://github.com/{full_name}"
+            if sys.platform == 'win32':
+                os.startfile(browse_url)
+            elif sys.platform == 'darwin':
+                subprocess.run(["open", browse_url])
+            else:
+                subprocess.run(["xdg-open", browse_url])
+        elif "README" in choice:
+            readme = run_command(["gh", "api", f"repos/{full_name}/readme", "--jq", ".content"])
+            if readme:
+                import base64
+                try:
+                    decoded = base64.b64decode(readme).decode('utf-8')
+                    clear_screen()
+                    print(f"{BOLD}--- README for {full_name} ---{NC}\n")
+                    for line in decoded.splitlines()[:80]:
+                        print(line)
+                    print(f"\n{DIM}Press Enter to return...{NC}")
+                    input()
+                except Exception:
+                    print(f"{RED}Could not decode README{NC}")
+                    time.sleep(2)
+            else:
+                print(f"{YELLOW}No README found.{NC}")
+                time.sleep(2)
+        elif "File Tree" in choice:
+            tree = run_command(["gh", "api", f"repos/{full_name}/git/trees/HEAD?recursive=1", "--jq", ".tree[].path"])
+            if tree:
+                files = tree.splitlines()
+                selected = run_fzf(files, header=f"Files in {full_name}", height='80%')
+                if selected:
+                    browse_url = f"https://github.com/{full_name}/blob/HEAD/{selected}"
+                    if sys.platform == 'win32':
+                        os.startfile(browse_url)
+                    elif sys.platform == 'darwin':
+                        subprocess.run(["open", browse_url])
+                    else:
+                        subprocess.run(["xdg-open", browse_url])
+            else:
+                print(f"{YELLOW}Could not fetch file tree.{NC}")
+                time.sleep(2)
+        elif "Branches" in choice:
+            branches = run_command(["gh", "api", f"repos/{full_name}/branches", "--jq", ".[].name"])
+            if branches:
+                branch_list = branches.splitlines()
+                run_fzf(branch_list, header=f"Branches in {full_name}", height='60%')
+            else:
+                print(f"{YELLOW}Could not fetch branches.{NC}")
+                time.sleep(2)
+        elif "Releases" in choice:
+            releases = run_command(["gh", "api", f"repos/{full_name}/releases", "--jq", ".[].tag_name"])
+            if releases:
+                run_fzf(releases.splitlines(), header=f"Releases for {full_name}", height='60%')
+            else:
+                print(f"{YELLOW}No releases found.{NC}")
+                time.sleep(2)
+        elif "Commits" in choice:
+            commits = run_command(["gh", "api", f"repos/{full_name}/commits", "--jq", '.[] | .sha[:7] + " | " + .commit.message + " | " + .commit.author.name'])
+            if commits:
+                clear_screen()
+                print(f"{BOLD}--- Recent Commits for {full_name} ---{NC}\n")
+                for line in commits.splitlines()[:20]:
+                    print(f"  {CYAN}{line}{NC}")
+                print(f"\n{DIM}Press Enter to return...{NC}")
+                input()
+            else:
+                print(f"{YELLOW}Could not fetch commits.{NC}")
+                time.sleep(2)
+
+
 def github_repos():
     if not shutil.which("gh"): print("gh CLI missing"); return
-    
+
     print(f"{BLUE}Searching organizations or your repos...{NC}")
     user = run_command(["gh", "api", "user", "--jq", ".login"])
     orgs = run_command(["gh", "api", "user/orgs", "--jq", ".[].login"]).splitlines()
     options = [f"👤 {user}"] + [f"🏢 {o}" for o in orgs]
     ent = run_fzf(options, header="Select User/Org", height='40%')
     if not ent: return
-    
+
     name = ent.split(" ")[1]
     print(f"{BLUE}Fetching repositories for {name}...{NC}")
-    repos_json = run_command(["gh", "repo", "list", name, "--limit", "50", "--json", "name,owner,url"])
+    repos_json = run_command(["gh", "repo", "list", name, "--limit", "100", "--json", "name,owner,url,description,stargazerCount,forkCount,isPrivate,primaryLanguage,updatedAt"])
     repos_data = json.loads(repos_json)
-    selected = run_fzf([f"{r['owner']['login']}/{r['name']}" for r in repos_data], header=f"Repos in {name}")
-    if selected:
-        url = next(r['url'] for r in repos_data if f"{r['owner']['login']}/{r['name']}" == selected)
-        action = run_fzf(["📥 Clone", "🌐 Browser"], header="Action")
-        if "Clone" in action: subprocess.run(["git", "clone", url, str(REPO_DIR / selected.split("/")[-1])])
+
+    display = []
+    for r in repos_data:
+        lang = r.get('primaryLanguage', {}).get('name', '?') if r.get('primaryLanguage') else '?'
+        stars = r.get('stargazerCount', 0)
+        desc = r.get('description', '') or ''
+        display.append(f"★ {stars}  {CYAN}{lang}{NC}  {r['owner']['login']}/{r['name']}  {DIM}{desc[:50]}{NC}")
+
+    selected_idx = run_fzf(display, header=f"Repos in {name}", height='70%')
+    if selected_idx:
+        for i, d in enumerate(display):
+            if d.strip() == selected_idx.strip() or d == selected_idx:
+                github_repo_actions(repos_data[i])
+                break
 
 def clone_repo():
     url = input("URL: ").strip()
